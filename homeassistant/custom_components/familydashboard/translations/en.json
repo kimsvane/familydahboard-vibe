@@ -1,0 +1,49 @@
+{
+  "title": "Family Dashboard",
+  "flow_title": "Family Dashboard",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Family Dashboard",
+        "description": "Enter the base URL used by Home Assistant. The integration will verify all three dashboard API endpoints before setup completes.",
+        "data": {
+          "url": "Dashboard URL",
+          "token": "Bearer token (optional)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Family Dashboard",
+        "description": "Enter a replacement bearer token, or leave it empty if the API no longer requires authentication.",
+        "data": {
+          "token": "Bearer token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the dashboard API",
+      "invalid_auth": "Authentication was rejected",
+      "invalid_response": "The API returned an invalid response",
+      "invalid_url": "The dashboard URL is invalid"
+    },
+    "abort": {
+      "already_configured": "Family Dashboard is already configured",
+      "reauth_successful": "Authentication was updated successfully"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_event": {
+        "name": "Next event"
+      },
+      "next_birthday": {
+        "name": "Next birthday"
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Refresh data",
+      "description": "Immediately refresh Family Dashboard data."
+    }
+  }
+}

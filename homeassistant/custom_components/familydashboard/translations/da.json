@@ -1,0 +1,49 @@
+{
+  "title": "Family Dashboard",
+  "flow_title": "Family Dashboard",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Opret forbindelse til Family Dashboard",
+        "description": "Angiv basis-URL'en, som Home Assistant bruger. Integrationen verificerer alle tre dashboard-API-endepunkter, før opsætningen fuldføres.",
+        "data": {
+          "url": "Dashboard-URL",
+          "token": "Bearer-token (valgfri)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Genautentificér Family Dashboard",
+        "description": "Angiv en ny bearer-token, eller feltet kan efterlades tomt, hvis API'en ikke længere kræver godkendelse.",
+        "data": {
+          "token": "Bearer-token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Der kunne ikke oprettes forbindelse til dashboard-API'en",
+      "invalid_auth": "Godkendelsen blev afvist",
+      "invalid_response": "API'en returnerede et ugyldigt svar",
+      "invalid_url": "Dashboard-URL'en er ugyldig"
+    },
+    "abort": {
+      "already_configured": "Family Dashboard er allerede konfigureret",
+      "reauth_successful": "Godkendelsen blev opdateret"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_event": {
+        "name": "Næste begivenhed"
+      },
+      "next_birthday": {
+        "name": "Næste fødselsdag"
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Opdater data",
+      "description": "Opdater Family Dashboard-data med det samme."
+    }
+  }
+}

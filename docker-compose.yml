@@ -1,0 +1,23 @@
+services:
+  family-dashboard:
+    build: .
+    image: family-dashboard:local
+    container_name: family-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      FAMILY_DASHBOARD_PASSWORD: ${FAMILY_DASHBOARD_PASSWORD:-family}
+      FAMILY_DASHBOARD_SECRET_KEY: ${FAMILY_DASHBOARD_SECRET_KEY:-change-this-secret-before-production}
+      FAMILY_DASHBOARD_TIMEZONE: ${FAMILY_DASHBOARD_TIMEZONE:-Europe/Copenhagen}
+      FAMILY_DASHBOARD_LOCATION_NAME: ${FAMILY_DASHBOARD_LOCATION_NAME:-København}
+      FAMILY_DASHBOARD_LATITUDE: ${FAMILY_DASHBOARD_LATITUDE:-55.6761}
+      FAMILY_DASHBOARD_LONGITUDE: ${FAMILY_DASHBOARD_LONGITUDE:-12.5683}
+      FAMILY_DASHBOARD_ALLOW_PRIVATE_CALENDARS: ${FAMILY_DASHBOARD_ALLOW_PRIVATE_CALENDARS:-false}
+      FAMILY_DASHBOARD_API_TOKEN: ${FAMILY_DASHBOARD_API_TOKEN:-}
+      FAMILY_DASHBOARD_ALLOWED_ORIGINS: ${FAMILY_DASHBOARD_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+    volumes:
+      - family-dashboard-data:/data
+
+volumes:
+  family-dashboard-data:

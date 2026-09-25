@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101828">
+  <meta name="description" content="Familiedashboard med kalender, fødselsdage og hjemmeframes">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <title>Familiedashboard</title>
+</head>
+<body>
+  <section id="login-screen" class="login-screen" aria-labelledby="login-title">
+    <div class="login-card">
+      <div class="brand-mark">FD</div>
+      <p class="eyebrow">Lokalt familiedashboard</p>
+      <h1 id="login-title">Velkommen hjem</h1>
+      <p class="muted">Log ind for at se familiens kalender og widgets.</p>
+      <form id="login-form" class="stack-form">
+        <label for="login-password">Adgangskode</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required autofocus>
+        <button class="button primary full" type="submit">Log ind</button>
+        <p id="login-error" class="error-text" role="alert"></p>
+      </form>
+    </div>
+  </section>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-mark small">FD</div>
+        <div>
+          <p class="brand-title" id="brand-title">Familiedashboard</p>
+          <p class="brand-subtitle" id="brand-subtitle">Din families hjem</p>
+        </div>
+      </div>
+      <div class="topbar-center">
+        <p class="today-label" id="top-date">—</p>
+        <p class="clock" id="clock">--:--</p>
+      </div>
+      <div class="topbar-actions">
+        <span class="connection-pill" id="connection-pill"><span class="status-dot"></span> Forbinder</span>
+        <button class="icon-button" id="refresh-button" type="button" aria-label="Opdater dashboard" title="Opdater">↻</button>
+        <button class="icon-button" id="settings-shortcut" type="button" aria-label="Åbn indstillinger" title="Indstillinger">⚙</button>
+      </div>
+    </header>
+
+    <nav class="main-nav" aria-label="Dashboard navigation">
+      <button class="nav-button active" data-view="today" type="button">I dag</button>
+      <button class="nav-button" data-view="calendar" type="button">Kalender</button>
+      <button class="nav-button" data-view="school" type="button">Skoleskema</button>
+      <button class="nav-button" data-view="birthdays" type="button">Fødselsdage</button>
+      <button class="nav-button" data-view="widgets" type="button">Widgets</button>
+      <button class="nav-button" data-view="settings" type="button">Indstillinger</button>
+    </nav>
+
+    <main class="content">
+      <section id="view-today" class="view active" data-view-panel="today">
+        <div class="hero-grid">
+          <article class="hero-card panel">
+            <div>
+              <p class="eyebrow" id="hero-greeting">Godmorgen</p>
+              <h1 id="hero-title">Familietid</h1>
+              <p class="hero-copy" id="hero-copy">Alt det vigtige samlet ét sted.</p>
+            </div>
+            <div class="hero-weather" id="hero-weather">
+              <span class="weather-icon" id="weather-icon">—</span>
+              <div><strong id="weather-temperature">--°</strong><span id="weather-location">Vejr</span></div>
+            </div>
+          </article>
+          <article class="stat-card panel">
+            <span class="stat-label">Familieaftaler i dag</span>
+            <strong class="stat-value" id="today-event-count">0</strong>
+            <span class="stat-foot" id="today-event-foot">Ingen aftaler</span>
+          </article>
+          <article class="stat-card panel birthday-stat">
+            <span class="stat-label">Næste fødselsdag</span>
+            <strong class="stat-value" id="next-birthday-count">—</strong>
+            <span class="stat-foot" id="next-birthday-name">Endnu ingen fødselsdage</span>
+          </article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="panel span-2">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Næste dage</p><h2>Familiekalender</h2></div>
+              <button class="text-button" data-view-link="calendar" type="button">Åbn kalender →</button>
+            </div>
+            <div id="today-events" class="event-list"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">I skolen</p><h2>Skoleskema</h2></div>
+              <button class="text-button" data-view-link="school" type="button">Se skemaer →</button>
+            </div>
+            <div id="today-school-events" class="event-list"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Det er værd at huske</p><h2>Fødselsdage</h2></div>
+              <button class="text-button" data-view-link="birthdays" type="button">Se alle →</button>
+            </div>
+            <div id="today-birthdays" class="birthday-list"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading"><div><p class="eyebrow">Hjemme</p><h2>Familien</h2></div></div>
+            <div id="today-members" class="member-list"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading"><div><p class="eyebrow">Små opgaver</p><h2>Checkliste</h2></div></div>
+            <form id="quick-checklist-form" class="inline-form">
+              <input id="quick-checklist-input" type="text" placeholder="Tilføj en opgave" maxlength="500" aria-label="Ny opgave">
+              <button class="button primary compact" type="submit">Tilføj</button>
+            </form>
+            <div id="today-checklist" class="checklist"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading"><div><p class="eyebrow">Huskesedler</p><h2>Noter</h2></div></div>
+            <div id="today-notes" class="notes-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-calendar" class="view" data-view-panel="calendar">
+        <div class="section-heading">
+          <div><p class="eyebrow">Familiekalender</p><h1>Kalender</h1></div>
+          <div class="section-actions">
+            <button class="button secondary" id="calendar-prev" type="button" aria-label="Forrige uge">‹</button>
+            <button class="button secondary" id="calendar-today" type="button">I dag</button>
+            <button class="button secondary" id="calendar-next" type="button" aria-label="Næste uge">›</button>
+            <button class="button primary" id="add-calendar-button" type="button">Tilføj kalender</button>
+          </div>
+        </div>
+        <div class="calendar-toolbar panel">
+          <button class="icon-button" id="calendar-prev-month" type="button" aria-label="Forrige måned">‹</button>
+          <strong id="calendar-range-title">—</strong>
+          <button class="icon-button" id="calendar-next-month" type="button" aria-label="Næste måned">›</button>
+          <span class="toolbar-spacer"></span>
+          <span class="muted" id="calendar-count">0 aftaler</span>
+        </div>
+        <div class="calendar-layout">
+          <article class="panel calendar-panel">
+            <div class="weekday-row"><span>Man</span><span>Tir</span><span>Ons</span><span>Tor</span><span>Fre</span><span>Lør</span><span>Søn</span></div>
+            <div id="calendar-grid" class="calendar-grid"></div>
+          </article>
+          <article class="panel agenda-panel">
+            <div class="panel-heading"><div><p class="eyebrow">Valgt dato</p><h2 id="agenda-date">—</h2></div></div>
+            <div id="agenda-list" class="event-list"></div>
+          </article>
+        </div>
+        <article class="panel source-panel">
+          <div class="panel-heading"><div><p class="eyebrow">Abonnementer</p><h2>Kalenderkilder</h2></div><span class="muted">Familie · ICS / WebCal</span></div>
+          <div id="source-list" class="source-list"></div>
+        </article>
+      </section>
+
+      <section id="view-school" class="view" data-view-panel="school">
+        <div class="section-heading">
+          <div><p class="eyebrow">Aula og skolekalendere</p><h1>Skoleskema</h1></div>
+          <div class="section-actions">
+            <button class="button secondary" id="school-prev" type="button" aria-label="Forrige skoleuge">‹</button>
+            <button class="button secondary" id="school-today" type="button">I dag</button>
+            <button class="button secondary" id="school-next" type="button" aria-label="Næste skoleuge">›</button>
+            <button class="button primary" id="add-school-button" type="button">Tilføj skoleskema</button>
+          </div>
+        </div>
+        <div class="calendar-toolbar panel">
+          <span class="muted">Uge</span>
+          <strong id="school-range-title">—</strong>
+          <span class="toolbar-spacer"></span>
+          <span class="muted" id="school-event-count">0 timer</span>
+        </div>
+        <div id="school-source-list" class="school-source-list"></div>
+      </section>
+
+      <section id="view-birthdays" class="view" data-view-panel="birthdays">
+        <div class="section-heading">
+          <div><p class="eyebrow">Det skal markeres</p><h1>Fødselsdage</h1></div>
+          <button class="button primary" id="add-birthday-button" type="button">Tilføj fødselsdag</button>
+        </div>
+        <div id="birthday-grid" class="birthday-grid"></div>
+      </section>
+
+      <section id="view-widgets" class="view" data-view-panel="widgets">
+        <div class="section-heading">
+          <div><p class="eyebrow">Valgfri indhold</p><h1>Widgets</h1></div>
+          <button class="button primary" id="add-frame-button" type="button">Tilføj iframe</button>
+        </div>
+        <p class="section-copy">Tilføj Home Assistant, nyheder, vejr eller andre HTTPS-sider. Iframes vises direkte på dashboardet.</p>
+        <div id="frame-grid" class="frame-grid"></div>
+      </section>
+
+      <section id="view-settings" class="view" data-view-panel="settings">
+        <div class="section-heading"><div><p class="eyebrow">Tilpas familiens rum</p><h1>Indstillinger</h1></div></div>
+        <div class="settings-grid">
+          <article class="panel settings-card">
+            <div class="panel-heading"><div><p class="eyebrow">Profil</p><h2>Dashboard</h2></div></div>
+            <form id="settings-form" class="stack-form">
+              <label for="setting-display-name">Displaynavn</label><input id="setting-display-name" name="display_name" type="text" maxlength="120">
+              <label for="setting-header-title">Overskrift</label><input id="setting-header-title" name="header_title" type="text" maxlength="120">
+              <label for="setting-greeting">Hilsen</label><input id="setting-greeting" name="greeting" type="text" maxlength="240">
+              <label for="setting-location">Sted</label><input id="setting-location" name="location_name" type="text" maxlength="120">
+              <div class="form-row"><div><label for="setting-latitude">Breddegrad</label><input id="setting-latitude" name="latitude" type="number" step="any"></div><div><label for="setting-longitude">Længdegrad</label><input id="setting-longitude" name="longitude" type="number" step="any"></div></div>
+              <button class="button primary" type="submit">Gem profil</button>
+            </form>
+          </article>
+          <article class="panel settings-card">
+            <div class="panel-heading"><div><p class="eyebrow">People</p><h2>Familiemedlemmer</h2></div><button class="button secondary compact" id="add-member-button" type="button">Tilføj</button></div>
+            <div id="member-settings-list" class="settings-list"></div>
+          </article>
+          <article class="panel settings-card wide">
+            <div class="panel-heading"><div><p class="eyebrow">Home Assistant</p><h2>Forbind dashboardet</h2></div></div>
+            <p class="section-copy">Åbn Home Assistant → Indstillinger → Dashboards → Layout, og tilføj et iframe-panel med denne adresse:</p>
+            <div class="copy-row"><code id="dashboard-url">—</code><button class="button secondary compact" id="copy-url-button" type="button">Kopiér</button></div>
+            <p class="muted small-copy">Integrationen i mappen <code>homeassistant/</code> kan tilføjes som en custom integration eller bruges til Lovelace-kortet.</p>
+          </article>
+          <article class="panel settings-card wide">
+            <div class="panel-heading"><div><p class="eyebrow">Data</p><h2>Kalender- og widgetkilder</h2></div></div>
+            <div class="settings-action-grid"><button class="button secondary" id="settings-add-calendar" type="button">Tilføj kalender</button><button class="button secondary" id="settings-add-school" type="button">Tilføj skoleskema</button><button class="button secondary" id="settings-add-birthday" type="button">Tilføj fødselsdag</button><button class="button secondary" id="settings-add-frame" type="button">Tilføj iframe</button><button class="button secondary" id="settings-add-note" type="button">Tilføj note</button></div>
+            <div id="settings-status" class="settings-status"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer"><span>Family Dashboard</span><span id="last-updated">—</span><button class="text-button" id="logout-button" type="button">Log ud</button></footer>
+  </div>
+
+  <div id="modal-root" class="modal-root" hidden></div>
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
