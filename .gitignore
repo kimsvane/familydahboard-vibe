@@ -11,6 +11,8 @@ data/*.db-*
 htmlcov/
 .mypy_cache/
 .ruff_cache/
-build/
-dist/
+/build/
+/dist/
 *.egg-info/
+clients/linux/node_modules/
+clients/linux/dist/

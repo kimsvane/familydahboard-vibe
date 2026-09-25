@@ -1,0 +1,101 @@
+{
+  "name": "family-dashboard-kiosk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fuldskærmsklient til Family Dashboard på en dedikeret Linux-enhed",
+  "author": {
+    "name": "Kim"
+  },
+  "main": "src/main.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/url.js && node --check src/settings.js && node --check src/connection.js && node --check ui/app.js",
+    "test": "node --test tests/*.test.js",
+    "dist": "electron-builder --linux",
+    "dist:current": "electron-builder --linux --x64"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "dk.ssvane.familydashboard.kiosk",
+    "productName": "family-dashboard-kiosk",
+    "asar": true,
+    "npmRebuild": false,
+    "files": [
+      "src/**/*",
+      "ui/**/*",
+      "package.json"
+    ],
+    "artifactName": "family-dashboard-kiosk-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "Utility",
+      "synopsis": "Dedikeret fuldskærmsklient til Family Dashboard",
+      "icon": "build/icon.png",
+      "executableName": "family-dashboard-kiosk",
+      "desktop": {
+        "entry": {
+          "Name": "Family Dashboard",
+          "Comment": "Vis Family Dashboard i fuldskærm",
+          "Categories": "Utility;Network;",
+          "StartupNotify": "false"
+        }
+      }
+    },
+    "deb": {
+      "packageCategory": "utils",
+      "priority": "optional",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ],
+      "afterInstall": "build/after-install.sh",
+      "afterRemove": "build/after-remove.sh"
+    },
+    "rpm": {
+      "packageCategory": "Applications/Internet",
+      "depends": [
+        "gtk3",
+        "libnotify",
+        "libXScrnSaver",
+        "nss",
+        "at-spi2-core",
+        "libuuid",
+        "libsecret"
+      ],
+      "afterInstall": "build/after-install.sh",
+      "afterRemove": "build/after-remove.sh"
+    }
+  }
+}

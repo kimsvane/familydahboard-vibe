@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <link rel="stylesheet" href="app.css">
+  <title>Family Dashboard indstillinger</title>
+</head>
+<body data-page="control">
+  <main class="page">
+    <section class="card">
+      <p class="eyebrow">Indstillinger</p>
+      <h1>Family Dashboard</h1>
+      <form id="control-form">
+        <label for="server-url">Serveradresse</label>
+        <input id="server-url" name="serverUrl" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" required>
+        <div class="actions">
+          <button class="primary" type="submit">Gem</button>
+          <button class="secondary" id="reconnect-button" type="button">Genindlæs</button>
+        </div>
+        <p class="status" id="status" aria-live="polite"></p>
+      </form>
+      <div class="actions">
+        <button class="secondary" id="close-button" type="button">Luk indstillinger</button>
+        <button class="danger" id="quit-button" type="button">Luk dashboardet</button>
+      </div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

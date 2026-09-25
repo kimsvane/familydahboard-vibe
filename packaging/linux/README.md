@@ -1,6 +1,6 @@
-# Native Linux installation
+# Native Linux server installation
 
-The native package installs the FastAPI application, a dedicated service user, a persistent SQLite database, and a systemd unit.
+This installs the Family Dashboard **server** with a systemd unit and a persistent SQLite database. A dedicated touch display only needs the separate kiosk client in `clients/linux`; it connects to this server and stores no calendar data locally.
 
 ## Install
 

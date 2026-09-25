@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <link rel="stylesheet" href="app.css">
+  <title>Family Dashboard ikke tilgængelig</title>
+</head>
+<body data-page="offline">
+  <main class="page">
+    <section class="card">
+      <p class="eyebrow">Forbindelse</p>
+      <h1>Serveren svarer ikke</h1>
+      <p class="lead">Dashboardet prøver automatisk igen. Kontrollér, at TrueNAS og Family Dashboard kører, og at enheden har netværk.</p>
+      <p class="server" id="server-url"></p>
+      <div class="actions">
+        <button class="primary" id="retry-button" type="button">Prøv igen</button>
+        <button class="secondary" id="settings-button" type="button">Indstillinger</button>
+      </div>
+      <p class="status" id="status" aria-live="polite"></p>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <link rel="stylesheet" href="app.css">
+  <title>Forbind Family Dashboard</title>
+</head>
+<body data-page="setup">
+  <main class="page">
+    <section class="card">
+      <p class="eyebrow">Engangsopsætning</p>
+      <h1>Forbind til familiedashboardet</h1>
+      <p class="lead">Indtast adressen på den server, hvor Family Dashboard kører.</p>
+      <form id="setup-form">
+        <label for="server-url">Serveradresse</label>
+        <input id="server-url" name="serverUrl" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="http://truenas:8080" required>
+        <p class="hint">Adgangskoden indtastes bagefter på dashboardets egen login-skærm.</p>
+        <div class="actions">
+          <button class="secondary" id="test-button" type="button">Test forbindelse</button>
+          <button class="primary" type="submit">Forbind</button>
+        </div>
+        <p class="status" id="status" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
