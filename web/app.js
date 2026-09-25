@@ -228,7 +228,7 @@ function renderTodaySchoolEvents(events) {
     target.innerHTML = `<div class="empty-state">Ingen skoletimer i dag.</div>`;
     return;
   }
-  target.innerHTML = groupEventsBySource(events).map((group) => `<section class="agenda-group"><h3><i style="background:${escapeHtml(group.color)}"></i>${escapeHtml(group.name)}<span>${group.events.length}</span></h3><div class="event-list">${group.events.map((event) => eventItem(event)).join("")}</div></section>`).join("");
+  target.innerHTML = groupEventsBySource(events).map((group) => `<section class="agenda-group"><h3><i style="background:${escapeHtml(group.color)}"></i><span class="agenda-source-name">${escapeHtml(group.name)}</span><span class="agenda-count">${group.events.length}</span></h3><div class="event-list">${group.events.map((event) => eventItem(event)).join("")}</div></section>`).join("");
 }
 
 function birthdayItem(birthday) {
@@ -543,7 +543,7 @@ function renderAgenda() {
   const events = state.calendarEvents.filter((event) => eventDateKey(event) === key);
   const groups = groupEventsBySource(events);
   $("#agenda-date").textContent = formatDate(state.selectedDate, { weekday: "long", day: "numeric", month: "long" });
-  $("#agenda-list").innerHTML = groups.length ? groups.map((group) => `<section class="agenda-group"><h3><i style="background:${escapeHtml(group.color)}"></i>${escapeHtml(group.name)}<span>${group.events.length}</span></h3><div class="event-list">${group.events.map((event) => eventItem(event)).join("")}</div></section>`).join("") : `<div class="empty-state">Ingen aftaler denne dato.</div>`;
+  $("#agenda-list").innerHTML = groups.length ? groups.map((group) => `<section class="agenda-group"><h3><i style="background:${escapeHtml(group.color)}"></i><span class="agenda-source-name">${escapeHtml(group.name)}</span><span class="agenda-count">${group.events.length}</span></h3><div class="event-list">${group.events.map((event) => eventItem(event)).join("")}</div></section>`).join("") : `<div class="empty-state">Ingen aftaler denne dato.</div>`;
 }
 
 function selectCalendarWeek(offset) {
