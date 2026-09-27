@@ -600,9 +600,10 @@ async def update_settings_route(payload: SettingsUpdate) -> dict[str, Any]:
     for key in SECRET_SETTING_KEYS:
         if key in values and not values[key]:
             del values[key]
+    updated = database.update_settings(values)
     if "log_level" in values:
         apply_log_level(database)
-    return {"settings": public_settings(database.update_settings(values))}
+    return {"settings": public_settings(updated)}
 
 
 @app.get("/api/cameras", dependencies=[Depends(require_auth)])

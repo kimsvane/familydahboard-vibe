@@ -227,8 +227,14 @@ class CalDAVRemindersClient:
             client, "PROPFIND", self.base_url, body, depth="0"
         )
         href_value = _find_property_href(response.content, "current-user-principal")
+        if not href_value or href_value == "/":
+            for candidate in _iter_hrefs(response.content):
+                if "principal" in candidate.lower():
+                    href_value = candidate
+                    break
         logger.debug("CalDAV current-user-principal -> %r", href_value)
-        if not href_value:
+        if not href_value or href_value == "/":
+            logger.debug("CalDAV principal-svar: %r", response.text[:800])
             raise CalDAVError("Could not discover iCloud CalDAV principal")
         return href_value
 
@@ -239,12 +245,22 @@ class CalDAVRemindersClient:
             "</d:propfind>"
         )
         url = urljoin(self.base_url, principal_href)
-        response = await self._request(client, "PROPFIND", url, body, depth="0")
-        href_value = _find_property_href(response.content, "calendar-home-set")
-        logger.debug("CalDAV calendar-home-set -> %r", href_value)
-        if not href_value:
-            raise CalDAVError("Could not discover iCloud calendar home")
-        return href_value
+        for target in (url, self.base_url):
+            response = await self._request(client, "PROPFIND", target, body, depth="0")
+            href_value = _find_property_href(
+                response.content, "calendar-home-set", "calendarHomeSet"
+            )
+            if not href_value or href_value == "/":
+                for candidate in _iter_hrefs(response.content):
+                    lowered = candidate.lower()
+                    if "/calendars" in lowered and ".ics" not in lowered:
+                        href_value = candidate
+                        break
+            if href_value and href_value != "/":
+                logger.debug("CalDAV calendar-home-set -> %r (fra %s)", href_value, target)
+                return href_value
+            logger.debug("Ingen calendar-home-set i svar fra %s: %r", target, response.text[:800])
+        raise CalDAVError("Could not discover iCloud calendar home")
 
     async def list_task_lists(self, client: httpx.AsyncClient) -> list[dict[str, str]]:
         body = (
@@ -348,18 +364,37 @@ def _is_auth_rejection(error: CalDAVError) -> bool:
     return "HTTP 401" in message or "Login blev afvist (401)" in message or "returned 401" in message
 
 
-def _find_property_href(xml: bytes, container: str) -> str:
-    """Findet href inde i det angivne DAV-property (ikke ressource-href)."""
+def _local_name(tag: Any) -> str:
+    if not isinstance(tag, str):
+        return ""
+    return tag.rsplit("}", 1)[-1].lower() if "}" in tag else tag.lower()
+
+
+def _iter_hrefs(xml: bytes) -> list[str]:
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return []
+    return [
+        element.text.strip()
+        for element in root.iter()
+        if _local_name(element.tag) == "href" and element.text and element.text.strip()
+    ]
+
+
+def _find_property_href(xml: bytes, *names: str) -> str:
+    """Find href'en inde i et DAV-property (matcher på lokalt navn, uafhængig af namespace)."""
     try:
         root = ET.fromstring(xml)
     except ET.ParseError:
         return ""
-    container_qname = _qname(DAV_NS, container)
-    href_qname = _qname(DAV_NS, "href")
-    for container_element in root.iter(container_qname):
-        for href in container_element.iter(href_qname):
-            if href.text:
-                return href.text.strip()
+    wanted = {name.lower() for name in names}
+    for element in root.iter():
+        if _local_name(element.tag) not in wanted:
+            continue
+        for child in element.iter():
+            if _local_name(child.tag) == "href" and child.text and child.text.strip():
+                return child.text.strip()
     return ""
 
 

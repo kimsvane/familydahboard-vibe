@@ -3,6 +3,7 @@ import email
 from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,6 +15,7 @@ from app.icloud_reminders import (
     CalDAVRemindersClient,
     RemindersSync,
     _find_calendar_data,
+    _find_property_href,
     _parse_calendar_home,
     build_todo,
     parse_todo,
@@ -707,6 +709,58 @@ async def _prepare_with_retry():
 
 def test_prepare_retries_with_full_apple_id():
     asyncio.run(_prepare_with_retry())
+
+
+def _xml_response(payload: bytes) -> httpx.Response:
+    return httpx.Response(200, content=payload, headers={"Content-Type": "application/xml"})
+
+
+def test_find_property_href_ignores_resource_href_and_prefixes():
+    xml = (
+        b'<?xml version="1.0"?>'
+        b'<x:multistatus xmlns:x="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
+        b"<x:response><x:href>/</x:href><x:propstat><x:prop>"
+        b"<x:calendar-home-set><x:href>/141421/141213/calendars/</x:href></x:calendar-home-set>"
+        b"</x:prop></x:propstat></x:response></x:multistatus>"
+    )
+    assert _find_property_href(xml, "calendar-home-set") == "/141421/141213/calendars/"
+
+    nested = (
+        b'<multistatus xmlns="DAV:"><response><href>/</href><propstat><prop>'
+        b"<calendar-home-set><href>https://p07-caldav.icloud.com:443/123/calendars/</href>"
+        b"</calendar-home-set></prop></propstat></response></multistatus>"
+    )
+    assert _find_property_href(nested, "calendar-home-set", "calendarHomeSet") == (
+        "https://p07-caldav.icloud.com:443/123/calendars/"
+    )
+    assert _find_property_href(nested, "current-user-principal") == ""
+
+
+async def _discover_home_with_root_fallback():
+    client = CalDAVRemindersClient("kim@icloud.com", "xxxx-xxxx-xxxx-xxxx")
+    responses = [
+        _xml_response(b'<multistatus xmlns="DAV:"><response><href>/1/</href></response></multistatus>'),
+        _xml_response(
+            b'<multistatus xmlns="DAV:"><response><href>/</href><propstat><prop>'
+            b"<calendar-home-set><href>/2/calendars/</href></calendar-home-set>"
+            b"</prop></propstat></response></multistatus>"
+        ),
+    ]
+    seen: list[str] = []
+
+    async def fake_request(_client, _method, url, *_args, **_kwargs):
+        seen.append(url)
+        return responses.pop(0)
+
+    with patch.object(client, "_request", side_effect=fake_request):
+        home = await client._discover_home(AsyncMock(), "/1/principal/")
+
+    assert home == "/2/calendars/"
+    assert seen == ["https://caldav.icloud.com/1/principal/", "https://caldav.icloud.com/"]
+
+
+def test_discover_home_falls_back_to_root():
+    asyncio.run(_discover_home_with_root_fallback())
 
 
 def test_ffmpeg_mjpeg_args():
