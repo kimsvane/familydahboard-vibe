@@ -1,5 +1,6 @@
 import asyncio
 import email
+import logging
 from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -515,6 +516,83 @@ def test_camera_snapshot_route_serves_cached_image(tmp_path):
         main.synchronizer.database = old_synchronizer_database
         main.camera_monitor = old_camera_monitor
         main.reminders = old_reminders
+
+
+def test_every_settings_field_can_be_saved(tmp_path):
+    from app.schemas import SettingsUpdate
+
+    fields = SettingsUpdate.model_fields
+    database = Database(tmp_path / "settings-allowlist.db")
+    sample = {
+        "log_level": "debug",
+        "theme": "dark",
+        "header_title": "Hej",
+        "greeting": "Godmorgen",
+        "display_name": "Familien",
+        "reminders_enabled": True,
+        "reolink_poll_seconds": 7,
+    }
+    for field, info in fields.items():
+        if field in sample:
+            continue
+        annotation = info.annotation
+        if annotation is bool:
+            sample[field] = True
+        elif annotation is int:
+            sample[field] = 3
+        elif annotation is float:
+            sample[field] = 1.5
+        else:
+            sample[field] = "test"
+    saved = database.update_settings(sample)
+    for field in fields:
+        if field.endswith("_href") or field.endswith("_password"):
+            continue
+        assert field in saved, f"{field} afvises af update_settings()"
+
+
+def test_home_candidates_derive_from_principal_href():
+    client = CalDAVRemindersClient("kim@icloud.com", "x")
+    assert client._home_candidates("/141421/141213/") == [
+        "https://caldav.icloud.com/141421/calendars/",
+        "https://caldav.icloud.com/calendars/",
+    ]
+    assert client._home_candidates("https://p07-caldav.icloud.com:443/98765/principals/users/1/") == [
+        "https://p07-caldav.icloud.com:443/98765/calendars/",
+        "https://p07-caldav.icloud.com:443/calendars/",
+    ]
+
+
+def test_log_level_setting_applies_after_save(tmp_path):
+    old_database = main.database
+    old_synchronizer_database = main.synchronizer.database
+    old_reminders = main.reminders
+    old_notes = main.icloud_notes
+    database = Database(tmp_path / "log-level.db")
+    main.database = database
+    main.synchronizer.database = database
+    main.reminders = RemindersSync(database)
+    main.icloud_notes = ICloudNotes(database)
+    access_logger = logging.getLogger("uvicorn.access")
+    previous = access_logger.level
+    try:
+        with TestClient(main.app) as client:
+            headers = _auth_client(client)
+            response = client.patch(
+                "/api/settings", json={"log_level": "debug"}, headers=headers
+            )
+            assert response.status_code == 200
+            assert response.json()["settings"]["log_level"] == "debug"
+            assert database.get_setting("log_level") == "debug"
+            assert access_logger.level == logging.DEBUG
+            client.patch("/api/settings", json={"log_level": "error"}, headers=headers)
+            assert access_logger.level == logging.ERROR
+    finally:
+        access_logger.setLevel(previous)
+        main.database = old_database
+        main.synchronizer.database = old_synchronizer_database
+        main.reminders = old_reminders
+        main.icloud_notes = old_notes
 
 
 def test_settings_redaction_hides_secrets(tmp_path):

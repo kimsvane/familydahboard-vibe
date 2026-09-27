@@ -281,7 +281,10 @@ function renderIcloudNote() {
   } else if (!note?.enabled) {
     body.innerHTML = `<p class="muted small-copy">iCloud-note er gemt, men visningen er slået fra – marker “Aktivér visning af note” under <a href="#" data-view-link="settings" class="text-button">Indstillinger</a> og gem igen.</p>`;
   } else if (note?.found === false) {
-    body.innerHTML = `<p class="muted small-copy">Noten <strong>“${escapeHtml(note.title || $("#setting-notes-title").value || "")}”</strong> blev ikke fundet i iCloud. Tjek at titlen i “Note-titel”-feltet staver præcist som i Notes-appen – kun en note med nøjagtig samme titel vises.</p>`;
+    const diagnostic = note.debug
+      ? `<p class="muted small-copy debug-copy"><strong>Diagnostik:</strong> ${escapeHtml(note.debug)}</p>`
+      : "";
+    body.innerHTML = `<p class="muted small-copy">Noten <strong>“${escapeHtml(note.title || $("#setting-notes-title").value || "")}”</strong> blev ikke fundet i iCloud. Tjek at titlen i “Note-titel”-feltet staver præcist som i Notes-appen – kun en note med nøjagtig samme titel vises.</p>${diagnostic}`;
   } else if (note.content) {
     body.innerHTML = `<p>${escapeHtml(note.content)}</p>`;
   } else {
@@ -869,13 +872,20 @@ function selectSchoolWeek(offset) {
 }
 
 function bindEvents() {
+  const saveLogLevel = () => {
+    const select = $("#setting-log-level");
+    if (!select) return;
+    api("/api/settings", { method: "PATCH", body: { log_level: select.value } })
+      .then(() => showToast("Log-indstillinger gemt"))
+      .catch((error) => showToast(error.message, true));
+  };
+  document.addEventListener("click", (event) => {
+    if (event.target && event.target.id === "logging-save") saveLogLevel();
+  });
   document.addEventListener("submit", (event) => {
     if (!event.target || event.target.id !== "logging-form") return;
     event.preventDefault();
-    const values = { log_level: event.target.elements.log_level.value };
-    api("/api/settings", { method: "PATCH", body: values })
-      .then(() => showToast("Log-indstillinger gemt"))
-      .catch((error) => showToast(error.message, true));
+    saveLogLevel();
   });
   $("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -981,6 +991,9 @@ function bindEvents() {
         showToast(note.error, true);
       } else if (note?.content) {
         showToast("Noten er hentet");
+      } else if (note?.found === false) {
+        $("#notes-help").innerHTML = `Noten “${escapeHtml(note.title || "")}” blev ikke fundet. <span class="debug-copy">${escapeHtml(note.debug || "")}</span>`;
+        showToast("Noten blev ikke fundet – se detaljer under noten", true);
       } else {
         showToast("Noten er tom eller ikke fundet", true);
       }

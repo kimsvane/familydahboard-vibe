@@ -225,7 +225,12 @@ class Database:
         return {row["key"]: row["value"] for row in rows}
 
     def update_settings(self, values: dict[str, Any]) -> dict[str, str]:
-        allowed = set(self.default_settings) | {"theme", "header_title", "greeting"}
+        allowed = set(self.default_settings) | {
+            "theme",
+            "header_title",
+            "greeting",
+            "log_level",
+        }
         with self.connection() as connection:
             for key, value in values.items():
                 if key not in allowed:

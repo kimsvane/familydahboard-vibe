@@ -6,7 +6,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timezone
 from typing import Any, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from icalendar import Calendar, Todo
@@ -238,38 +238,72 @@ class CalDAVRemindersClient:
             raise CalDAVError("Could not discover iCloud CalDAV principal")
         return href_value
 
+    def _home_from_response(self, content: bytes) -> Optional[str]:
+        value = _find_property_href(content, "calendar-home-set", "calendarHomeSet")
+        if value and value != "/":
+            return value
+        for candidate in _iter_hrefs(content):
+            lowered = candidate.lower()
+            if "/calendar" in lowered and ".ics" not in lowered and "/calendar-home" not in lowered:
+                return candidate
+        return None
+
+    def _home_candidates(self, principal_href: str) -> list[str]:
+        parts = urlsplit(principal_href)
+        origin = f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else self.base_url
+        candidates: list[str] = []
+        segments = [segment for segment in parts.path.split("/") if segment]
+        if segments:
+            candidates.append(urljoin(f"{origin}/", f"{segments[0]}/calendars/"))
+        candidates.append(urljoin(f"{origin}/", "calendars/"))
+        unique: list[str] = []
+        for candidate in candidates:
+            if candidate not in unique:
+                unique.append(candidate)
+        return unique
+
     async def _discover_home(self, client: httpx.AsyncClient, principal_href: str) -> str:
         body = (
             f'<d:propfind xmlns:d="{DAV_NS}" xmlns:c="{CAL_NS}">'
             "<d:prop><d:calendar-home-set/></d:prop>"
             "</d:propfind>"
         )
-        url = urljoin(self.base_url, principal_href)
-        for target in (url, self.base_url):
+        diagnostic: list[str] = []
+        for target in (urljoin(self.base_url, principal_href), self.base_url):
             response = await self._request(client, "PROPFIND", target, body, depth="0")
-            href_value = _find_property_href(
-                response.content, "calendar-home-set", "calendarHomeSet"
-            )
-            if not href_value or href_value == "/":
-                for candidate in _iter_hrefs(response.content):
-                    lowered = candidate.lower()
-                    if "/calendars" in lowered and ".ics" not in lowered:
-                        href_value = candidate
-                        break
-            if href_value and href_value != "/":
+            href_value = self._home_from_response(response.content)
+            if href_value:
                 logger.debug("CalDAV calendar-home-set -> %r (fra %s)", href_value, target)
                 return href_value
-            logger.debug("Ingen calendar-home-set i svar fra %s: %r", target, response.text[:800])
-        raise CalDAVError("Could not discover iCloud calendar home")
+            hrefs = _iter_hrefs(response.content)
+            diagnostic.append(f"{target} gav {hrefs[:4]}")
+            logger.debug("Ingen calendar-home-set fra %s: %r", target, response.text[:600])
+        for candidate in self._home_candidates(principal_href):
+            try:
+                probe = await self._request(
+                    client, "PROPFIND", candidate, self._list_body(), depth="1"
+                )
+            except CalDAVError as exc:
+                diagnostic.append(f"{candidate} -> {exc}")
+                continue
+            if _parse_calendar_home(probe.content):
+                logger.debug("CalDAV calendar-home fundet via kandidat %r", candidate)
+                return candidate
+            diagnostic.append(f"{candidate} -> ingen lister")
+        raise CalDAVError(
+            "Could not discover iCloud calendar home – " + "; ".join(diagnostic)
+        )
 
-    async def list_task_lists(self, client: httpx.AsyncClient) -> list[dict[str, str]]:
-        body = (
+    def _list_body(self) -> str:
+        return (
             f'<d:propfind xmlns:d="{DAV_NS}" xmlns:c="{CAL_NS}">'
             "<d:prop><d:displayname/><d:resourcetype/>"
             "<c:supported-calendar-component-set/></d:prop></d:propfind>"
         )
+
+    async def list_task_lists(self, client: httpx.AsyncClient) -> list[dict[str, str]]:
         response = await self._request(
-            client, "PROPFIND", self._home_url(), body, depth="1"
+            client, "PROPFIND", self._home_url(), self._list_body(), depth="1"
         )
         return _parse_calendar_home(response.content)
 

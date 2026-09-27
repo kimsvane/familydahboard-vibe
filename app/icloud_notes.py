@@ -209,6 +209,40 @@ class ICloudNotes:
                 return folder, uid
         return None
 
+    def _scan_report(
+        self, connection: imaplib.IMAP4_SSL, folders: list[str], title: str
+    ) -> str:
+        """Kort beskrivelse af hvad der faktisk blev fundet, til visning i UI'et."""
+        parts: list[str] = [f"Søgte efter titlen {title!r} i {len(folders)} Notes-mappe(r)."]
+        for folder in folders:
+            try:
+                typ, _ = connection.select(folder, readonly=True)
+                if typ != "OK":
+                    parts.append(f"{folder}: kunne ikke åbnes")
+                    continue
+                typ, data = connection.uid("search", None, "ALL")
+                if typ != "OK" or not data or not data[0]:
+                    parts.append(f"{folder}: tom mappe")
+                    continue
+                uids = data[0].split()
+                comma_uids = ",".join(
+                    uid.decode() if isinstance(uid, bytes) else str(uid) for uid in uids
+                )
+                _, messages = connection.uid(
+                    "fetch", comma_uids, "(BODY.PEEK[HEADER.FIELDS (SUBJECT)])"
+                )
+                subjects = [
+                    str(email.message_from_bytes(
+                        item[1] if len(item) > 1 and isinstance(item[1], bytes) else b""
+                    ).get("subject") or "").strip()
+                    for item in (messages or [])
+                    if isinstance(item, tuple) and item
+                ]
+                parts.append(f"{folder}: {len(uids)} note(s) – titler: {subjects[:12]}")
+            except Exception as exc:  # noqa: BLE001
+                parts.append(f"{folder}: fejl ({exc})")
+        return " | ".join(parts)[:1200]
+
     async def fetch(self) -> dict[str, Any]:
         if not self.enabled():
             return {
@@ -262,6 +296,7 @@ class ICloudNotes:
                     "title": title,
                     "content": "",
                     "error": "",
+                    "debug": self._scan_report(connection, folders, title),
                     "fetched_at": _utc_now(),
                 }
             _, found_uid = found

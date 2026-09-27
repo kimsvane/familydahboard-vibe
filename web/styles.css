@@ -251,7 +251,14 @@ input:hover, textarea:hover, select:hover { border-color: rgba(159, 181, 222, 0.
 .camera-live { position: absolute; top: 10px; left: 10px; padding: 5px 9px; border-radius: 8px; color: #ffd9dd; background: rgba(164, 52, 69, 0.78); font-size: 0.68rem; font-weight: 800; }
 .camera-actions { display: flex; gap: 4px; }
 .camera-actions .icon-button, .frame-actions .icon-button { width: 34px; height: 34px; border: 0; background: transparent; }
-.camera-actions .camera-live-btn.active { color: #ffd9dd; background: rgba(164, 52, 69, 0.78); }
+.camera-actions .debug-copy {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  word-break: break-word;
+  opacity: 0.85;
+}
+
+.camera-live-btn.active { color: #ffd9dd; background: rgba(164, 52, 69, 0.78); }
 .detect-card .detect-live { top: 12px; left: 12px; z-index: 2; }
 .camera-activity-log { margin-top: 14px; padding: 20px; }
 .activity-list { display: grid; gap: 7px; }
