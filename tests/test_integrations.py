@@ -660,16 +660,27 @@ def test_notes_icloud_routes_disabled_are_safe(tmp_path):
         main.icloud_notes = old_notes
 
 
-def test_icloud_caldav_username_candidates():
+def test_icloud_caldav_credential_candidates():
     client = CalDAVRemindersClient("kim", "xxxx-xxxx-xxxx-xxxx")
-    assert client._username_candidates() == [
-        "kim",
-        "kim@icloud.com",
-        "kim@me.com",
-        "kim@mac.com",
+    assert client._credential_candidates() == [
+        ("kim", "xxxx-xxxx-xxxx-xxxx"),
+        ("kim@icloud.com", "xxxx-xxxx-xxxx-xxxx"),
+        ("kim@me.com", "xxxx-xxxx-xxxx-xxxx"),
+        ("kim@mac.com", "xxxx-xxxx-xxxx-xxxx"),
     ]
     fully_qualified = CalDAVRemindersClient("kim@icloud.com", "x")
-    assert fully_qualified._username_candidates() == ["kim@icloud.com"]
+    assert fully_qualified._credential_candidates() == [("kim@icloud.com", "x")]
+
+
+def test_client_falls_back_to_notes_credentials():
+    client = CalDAVRemindersClient(
+        "kim",
+        "reminders-pass",
+        extra_auth=[("kim@icloud.com", "notes-pass")],
+    )
+    candidates = client._credential_candidates()
+    assert ("kim@icloud.com", "notes-pass") in candidates
+    assert candidates[0] == ("kim", "reminders-pass")
 
 
 async def _prepare_with_retry():

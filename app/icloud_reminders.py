@@ -114,21 +114,33 @@ class CalDAVRemindersClient:
         app_password: str,
         base_url: str = ICLOUD_CALDAV,
         timeout: float = 15.0,
+        extra_auth: Optional[list[tuple[str, str]]] = None,
     ) -> None:
         self.base_url = base_url
-        self.username = username
-        self.password = app_password
         self.auth = (username, app_password)
         self.timeout = timeout
+        self._credential_sets = [(username, app_password)] + list(extra_auth or [])
         self.resolved_username: Optional[str] = None
+        self.resolved_password: Optional[str] = None
         self._home: Optional[str] = None
 
-    def _username_candidates(self) -> list[str]:
-        candidates = [self.username]
-        if "@" not in self.username:
-            for domain in APPLE_ID_DOMAINS:
-                candidates.append(f"{self.username}@{domain}")
-        return candidates
+    def _credential_candidates(self) -> list[tuple[str, str]]:
+        result: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for user, password in self._credential_sets:
+            if not user or not password:
+                continue
+            if (user, password) in seen:
+                continue
+            seen.add((user, password))
+            result.append((user, password))
+            if "@" not in user:
+                for domain in APPLE_ID_DOMAINS:
+                    combo = (f"{user}@{domain}", password)
+                    if combo not in seen:
+                        seen.add(combo)
+                        result.append(combo)
+        return result
 
     async def _request(
         self,
@@ -179,9 +191,9 @@ class CalDAVRemindersClient:
         return urljoin(self.base_url, self._home)
 
     async def prepare(self, client: httpx.AsyncClient) -> None:
-        candidates = self._username_candidates()
-        for index, username in enumerate(candidates):
-            self.auth = (username, self.password)
+        candidates = self._credential_candidates()
+        for index, (username, password) in enumerate(candidates):
+            self.auth = (username, password)
             try:
                 principal = await self._discover_principal(client)
                 home = await self._discover_home(client, principal)
@@ -191,6 +203,7 @@ class CalDAVRemindersClient:
                 raise
             self._home = home
             self.resolved_username = username
+            self.resolved_password = password
             return
 
     async def _discover_principal(self, client: httpx.AsyncClient) -> str:
@@ -413,21 +426,46 @@ class RemindersSync:
         settings = self.database.get_settings()
         return settings.get("reminders_enabled", "false").lower() == "true" and self.configured()
 
-    def _client(self) -> CalDAVRemindersClient:
+    def _auth_candidates(self) -> list[dict[str, str]]:
         settings = self.database.get_settings()
+        candidates: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for user_key, password_key in (
+            ("reminders_username", "reminders_app_password"),
+            ("notes_imap_username", "notes_imap_app_password"),
+        ):
+            user = (settings.get(user_key) or "").strip()
+            password = settings.get(password_key) or ""
+            if not user or not password or (user, password) in seen:
+                continue
+            seen.add((user, password))
+            candidates.append({"user": user, "password": password, "source": user_key})
+        return candidates
+
+    def _client(self) -> CalDAVRemindersClient:
+        candidates = self._auth_candidates()
+        primary = candidates[0] if candidates else {"user": "", "password": ""}
+        extras = [(item["user"], item["password"]) for item in candidates[1:]]
         return CalDAVRemindersClient(
-            settings.get("reminders_username") or "",
-            settings.get("reminders_app_password") or "",
+            primary["user"],
+            primary["password"],
+            extra_auth=extras,
         )
 
     def _list_href(self) -> str:
         return self.database.get_setting("reminders_list_href") or ""
 
     def _remember_resolved(self, client: CalDAVRemindersClient) -> None:
-        resolved = client.resolved_username
-        current = self.database.get_setting("reminders_username") or ""
-        if resolved and resolved != current:
-            self.database.update_settings({"reminders_username": resolved})
+        resolved_user = client.resolved_username
+        resolved_password = client.resolved_password
+        settings = self.database.get_settings()
+        updates: dict[str, str] = {}
+        if resolved_user and resolved_user != (settings.get("reminders_username") or ""):
+            updates["reminders_username"] = resolved_user
+        if resolved_password and resolved_password != (settings.get("reminders_app_password") or ""):
+            updates["reminders_app_password"] = resolved_password
+        if updates:
+            self.database.update_settings(updates)
 
     def _todo_url(self, uid: str) -> str:
         collection = urljoin(self._client().base_url, self._list_href())

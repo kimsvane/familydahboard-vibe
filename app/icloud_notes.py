@@ -184,7 +184,7 @@ class ICloudNotes:
             if not match:
                 continue
             message = email.message_from_bytes(body)
-            subject = str(message.get("subject") or "")
+            subject = str(message.get("subject") or "").strip()
             if subject == title or subject.casefold() == title.casefold():
                 return match.group(1).decode()
         return None
