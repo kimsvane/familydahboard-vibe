@@ -869,6 +869,14 @@ function selectSchoolWeek(offset) {
 }
 
 function bindEvents() {
+  document.addEventListener("submit", (event) => {
+    if (!event.target || event.target.id !== "logging-form") return;
+    event.preventDefault();
+    const values = { log_level: event.target.elements.log_level.value };
+    api("/api/settings", { method: "PATCH", body: values })
+      .then(() => showToast("Log-indstillinger gemt"))
+      .catch((error) => showToast(error.message, true));
+  });
   $("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const error = $("#login-error");
@@ -984,12 +992,6 @@ function bindEvents() {
     values.reolink_poll_seconds = Number(values.reolink_poll_seconds) || undefined;
     values.reolink_close_delay = Number(values.reolink_close_delay) || 0;
     try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); await loadCameras(); showToast("Kamera-indstillinger gemt"); } catch (error) { showToast(error.message, true); }
-  });
-  const loggingForm = $("#logging-form");
-  if (loggingForm) loggingForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const values = { log_level: loggingForm.elements.log_level.value };
-    try { await api("/api/settings", { method: "PATCH", body: values }); showToast("Log-indstillinger gemt"); } catch (error) { showToast(error.message, true); }
   });
   $("#copy-url-button").addEventListener("click", async () => { await navigator.clipboard?.writeText(window.location.origin); showToast("Adresse kopieret"); });
   $("#quick-checklist-form").addEventListener("submit", async (event) => {
