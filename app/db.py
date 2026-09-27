@@ -16,6 +16,23 @@ DEFAULT_SETTINGS = {
     "show_seconds": "true",
     "calendar_refresh_minutes": "15",
     "weather_enabled": "true",
+    "reminders_enabled": "false",
+    "reminders_username": "",
+    "reminders_app_password": "",
+    "reminders_list_name": "",
+    "reminders_list_href": "",
+    "reminders_sync_minutes": "5",
+    "reminders_last_sync": "",
+    "reminders_last_error": "",
+    "notes_imap_enabled": "false",
+    "notes_imap_username": "",
+    "notes_imap_app_password": "",
+    "notes_imap_host": "imap.mail.me.com",
+    "notes_imap_note_title": "",
+    "notes_imap_last_sync": "",
+    "notes_imap_last_error": "",
+    "reolink_poll_seconds": "5",
+    "reolink_close_delay": "0",
 }
 
 
@@ -139,6 +156,28 @@ class Database:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS cameras (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    username TEXT NOT NULL DEFAULT '',
+                    password TEXT NOT NULL DEFAULT '',
+                    channel INTEGER NOT NULL DEFAULT 0,
+                    person_enabled INTEGER NOT NULL DEFAULT 1,
+                    vehicle_enabled INTEGER NOT NULL DEFAULT 1,
+                    snapshots_enabled INTEGER NOT NULL DEFAULT 1,
+                    live_stream_url TEXT NOT NULL DEFAULT '',
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS camera_activity_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    camera_id INTEGER NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,
+                    detection_type TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT
+                );
                 """
             )
             source_columns = {
@@ -160,6 +199,16 @@ class Database:
             }
             if "recurrence_timezone" not in event_columns:
                 connection.execute("ALTER TABLE events ADD COLUMN recurrence_timezone TEXT")
+            checklist_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(checklist_items)").fetchall()
+            }
+            if "source" not in checklist_columns:
+                connection.execute(
+                    "ALTER TABLE checklist_items ADD COLUMN source TEXT NOT NULL DEFAULT 'local'"
+                )
+            if "external_id" not in checklist_columns:
+                connection.execute("ALTER TABLE checklist_items ADD COLUMN external_id TEXT")
             for key, value in self.default_settings.items():
                 connection.execute(
                     "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (key, value)
@@ -471,6 +520,181 @@ class Database:
         with self.connection() as connection:
             return connection.execute("DELETE FROM frames WHERE id = ?", (frame_id,)).rowcount > 0
 
+    def list_cameras(self) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM cameras ORDER BY sort_order, id"
+            ).fetchall()
+        return [self._public(row) for row in rows]
+
+    def get_camera(self, camera_id: int) -> Optional[dict[str, Any]]:
+        with self.connection() as connection:
+            row = connection.execute("SELECT * FROM cameras WHERE id = ?", (camera_id,)).fetchone()
+        return self._public(row) if row else None
+
+    def create_camera(
+        self,
+        name: str,
+        host: str,
+        username: str,
+        password: str,
+        channel: int,
+        person_enabled: bool,
+        vehicle_enabled: bool,
+        snapshots_enabled: bool,
+        live_stream_url: str,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connection() as connection:
+            order = connection.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM cameras"
+            ).fetchone()[0]
+            cursor = connection.execute(
+                "INSERT INTO cameras(name, host, username, password, channel, person_enabled, "
+                "vehicle_enabled, snapshots_enabled, live_stream_url, sort_order, created_at, "
+                "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    name,
+                    host,
+                    username,
+                    password,
+                    channel,
+                    int(person_enabled),
+                    int(vehicle_enabled),
+                    int(snapshots_enabled),
+                    live_stream_url,
+                    order,
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM cameras WHERE id = ?", (cursor.lastrowid,)
+            ).fetchone()
+        return self._public(row)
+
+    def update_camera(self, camera_id: int, values: dict[str, Any]) -> Optional[dict[str, Any]]:
+        fields = {
+            key: value
+            for key, value in values.items()
+            if key
+            in {
+                "name",
+                "host",
+                "username",
+                "password",
+                "channel",
+                "person_enabled",
+                "vehicle_enabled",
+                "snapshots_enabled",
+                "live_stream_url",
+                "sort_order",
+            }
+        }
+        for key in ("person_enabled", "vehicle_enabled", "snapshots_enabled"):
+            if key in fields:
+                fields[key] = int(bool(fields[key]))
+        if not fields:
+            return self.get_camera(camera_id)
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        with self.connection() as connection:
+            connection.execute(
+                f"UPDATE cameras SET {assignments}, updated_at = ? WHERE id = ?",
+                [*fields.values(), utc_now(), camera_id],
+            )
+            if "host" in fields:
+                connection.execute(
+                    "DELETE FROM camera_activity_log WHERE camera_id = ?", (camera_id,)
+                )
+        return self.get_camera(camera_id)
+
+    def delete_camera(self, camera_id: int) -> bool:
+        with self.connection() as connection:
+            return connection.execute("DELETE FROM cameras WHERE id = ?", (camera_id,)).rowcount > 0
+
+    def log_detection_start(self, camera_id: int, detection_type: str, started_at: str) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT INTO camera_activity_log(camera_id, detection_type, started_at) "
+                "VALUES (?, ?, ?)",
+                (camera_id, detection_type, started_at),
+            )
+
+    def log_detection_end(self, camera_id: int, detection_type: str, ended_at: str) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                "UPDATE camera_activity_log SET ended_at = ? "
+                "WHERE camera_id = ? AND detection_type = ? AND ended_at IS NULL",
+                (ended_at, camera_id, detection_type),
+            )
+
+    def recent_camera_activity(self, limit: int = 15) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT camera_activity_log.*, cameras.name AS camera_name "
+                "FROM camera_activity_log JOIN cameras ON cameras.id = camera_activity_log.camera_id "
+                "ORDER BY camera_activity_log.id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [self._public(row) for row in rows]
+
+    def upsert_icloud_checklist_item(
+        self,
+        external_id: str,
+        text: str,
+        done: bool,
+        due_date: Optional[str],
+        sort_order: int,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connection() as connection:
+            existing = connection.execute(
+                "SELECT id FROM checklist_items WHERE source = 'icloud' AND external_id = ?",
+                (external_id,),
+            ).fetchone()
+            if existing:
+                connection.execute(
+                    "UPDATE checklist_items SET text = ?, done = ?, due_date = ?, "
+                    "sort_order = ?, updated_at = ? WHERE id = ?",
+                    (text, int(done), due_date, sort_order, now, existing["id"]),
+                )
+                row = connection.execute(
+                    "SELECT * FROM checklist_items WHERE id = ?", (existing["id"],)
+                ).fetchone()
+            else:
+                cursor = connection.execute(
+                    "INSERT INTO checklist_items(text, done, due_date, sort_order, source, "
+                    "external_id, created_at, updated_at) VALUES (?, ?, ?, ?, 'icloud', ?, ?, ?)",
+                    (text, int(done), due_date, sort_order, external_id, now, now),
+                )
+                row = connection.execute(
+                    "SELECT * FROM checklist_items WHERE id = ?", (cursor.lastrowid,)
+                ).fetchone()
+        return self._public(row)
+
+    def remove_icloud_checklist_missing(self, external_ids: set[str]) -> None:
+        with self.connection() as connection:
+            if not external_ids:
+                connection.execute(
+                    "DELETE FROM checklist_items WHERE source = 'icloud'"
+                )
+                return
+            connection.execute(
+                "DELETE FROM checklist_items WHERE source = 'icloud' "
+                "AND external_id NOT IN ({})".format(
+                    ",".join("?" for _ in external_ids)
+                ),
+                list(external_ids),
+            )
+
+    def get_checklist_item_by_external(self, external_id: str) -> Optional[dict[str, Any]]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM checklist_items WHERE source = 'icloud' AND external_id = ?",
+                (external_id,),
+            ).fetchone()
+        return self._public(row) if row else None
+
     def list_notes(self) -> list[dict[str, Any]]:
         with self.connection() as connection:
             rows = connection.execute(
@@ -583,4 +807,6 @@ class Database:
         for key in ("enabled", "visible", "pinned", "done", "all_day"):
             if key in item:
                 item[key] = bool(item[key])
+        if "password" in item:
+            item["password"] = ""
         return item

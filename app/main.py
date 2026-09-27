@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
 from urllib.parse import urlparse
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -13,11 +14,16 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
 from .db import Database
+from .icloud_notes import ICloudNotes
+from .icloud_reminders import RemindersSync
+from .reolink import CameraMonitor, ReolinkCamera, ReolinkError, normalize_host
 from .schemas import (
     BirthdayCreate,
     BirthdayUpdate,
     CalendarCreate,
     CalendarUpdate,
+    CameraCreate,
+    CameraUpdate,
     ChecklistCreate,
     ChecklistUpdate,
     FrameCreate,
@@ -26,6 +32,7 @@ from .schemas import (
     MemberCreate,
     MemberUpdate,
     NoteCreate,
+    NotesIcloudSaveRequest,
     NoteUpdate,
     SettingsUpdate,
 )
@@ -59,6 +66,20 @@ database = Database(
 )
 synchronizer = CalendarSynchronizer(database, settings)
 weather = WeatherService(settings)
+reminders = RemindersSync(database)
+icloud_notes = ICloudNotes(database)
+camera_monitor = CameraMonitor(database)
+
+SECRET_SETTING_KEYS = {"reminders_app_password", "notes_imap_app_password"}
+
+
+def public_settings(raw: dict[str, Any]) -> dict[str, Any]:
+    public = dict(raw)
+    public["reminders_configured"] = bool(raw.get("reminders_app_password"))
+    public["notes_imap_configured"] = bool(raw.get("notes_imap_app_password"))
+    for key in SECRET_SETTING_KEYS:
+        public[key] = ""
+    return public
 
 
 def payload_values(model: Any) -> dict[str, Any]:
@@ -100,14 +121,22 @@ def require_auth(request: Request) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     stop_event = asyncio.Event()
-    task: Optional[asyncio.Task] = None
+    tasks: list[asyncio.Task] = []
+
+    def start(coro: Any) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        tasks.append(task)
+        return task
+
     if settings.background_sync:
-        task = asyncio.create_task(synchronizer.run_periodically(stop_event))
+        start(synchronizer.run_periodically(stop_event))
+    start(reminders.run_periodically(stop_event))
+    start(camera_monitor.run(stop_event))
     yield
     stop_event.set()
-    if task:
+    for task in tasks:
         task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 app = FastAPI(
@@ -135,7 +164,8 @@ async def security_headers(request: Request, call_next: Any) -> Response:
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: https:; connect-src 'self' https:; frame-src http: https:; "
+            "img-src 'self' data: http: https:; connect-src 'self' http: https:; "
+            "frame-src http: https:; media-src 'self' http: https:; "
             "object-src 'none'; base-uri 'self'; form-action 'self'",
         )
     return response
@@ -258,7 +288,7 @@ async def dashboard_summary(
     return {
         "date": selected_day.isoformat(),
         "generated_at": datetime.now(get_timezone(timezone_name)).isoformat(),
-        "settings": current_settings,
+        "settings": public_settings(current_settings),
         "members": database.list_members(),
         "events": events,
         "birthdays": all_birthdays,
@@ -487,33 +517,46 @@ async def list_checklist() -> dict[str, Any]:
 
 @app.post("/api/checklist", status_code=201, dependencies=[Depends(require_auth)])
 async def create_checklist_item(payload: ChecklistCreate) -> dict[str, Any]:
+    text = payload.text.strip()
+    due = payload.due_date if payload.due_date else None
+    if reminders.enabled():
+        item = await reminders.create(text, due)
+        return {"item": item}
     return {
         "item": database.create_checklist_item(
-            payload.text.strip(), payload.due_date.isoformat() if payload.due_date else None
+            text, due.isoformat() if due else None
         )
     }
 
 
 @app.patch("/api/checklist/{item_id}", dependencies=[Depends(require_auth)])
 async def update_checklist_item(item_id: int, payload: ChecklistUpdate) -> dict[str, Any]:
-    if not database.get_checklist_item(item_id):
+    item = database.get_checklist_item(item_id)
+    if not item:
         raise HTTPException(status_code=404, detail="Checklist item not found")
     values = payload_values(payload)
     if "due_date" in values:
         values["due_date"] = values["due_date"].isoformat() if values["due_date"] else None
+    if reminders.enabled() and item.get("source") == "icloud":
+        return {"item": await reminders.update(item, values)}
     return {"item": database.update_checklist_item(item_id, values)}
 
 
 @app.delete("/api/checklist/{item_id}", dependencies=[Depends(require_auth)])
 async def delete_checklist_item(item_id: int) -> dict[str, bool]:
-    if not database.delete_checklist_item(item_id):
+    item = database.get_checklist_item(item_id)
+    if not item:
         raise HTTPException(status_code=404, detail="Checklist item not found")
+    if reminders.enabled() and item.get("source") == "icloud":
+        await reminders.delete(item)
+    else:
+        database.delete_checklist_item(item_id)
     return {"deleted": True}
 
 
 @app.get("/api/settings", dependencies=[Depends(require_auth)])
 async def get_settings_route() -> dict[str, Any]:
-    return {"settings": database.get_settings()}
+    return {"settings": public_settings(database.get_settings())}
 
 
 @app.patch("/api/settings", dependencies=[Depends(require_auth)])
@@ -526,7 +569,117 @@ async def update_settings_route(payload: SettingsUpdate) -> dict[str, Any]:
     for key in ("latitude", "longitude"):
         if key in values:
             values[key] = str(values[key])
-    return {"settings": database.update_settings(values)}
+    for key in SECRET_SETTING_KEYS:
+        if key in values and not values[key]:
+            del values[key]
+    return {"settings": public_settings(database.update_settings(values))}
+
+
+@app.get("/api/cameras", dependencies=[Depends(require_auth)])
+async def list_cameras() -> dict[str, Any]:
+    return {"cameras": database.list_cameras()}
+
+
+@app.post("/api/cameras", status_code=201, dependencies=[Depends(require_auth)])
+async def create_camera(payload: CameraCreate) -> dict[str, Any]:
+    try:
+        host = normalize_host(payload.host)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "camera": database.create_camera(
+            payload.name.strip(),
+            host,
+            payload.username.strip(),
+            payload.password,
+            payload.channel,
+            payload.person_enabled,
+            payload.vehicle_enabled,
+            payload.snapshots_enabled,
+            payload.live_stream_url.strip(),
+        )
+    }
+
+
+@app.patch("/api/cameras/{camera_id}", dependencies=[Depends(require_auth)])
+async def update_camera(camera_id: int, payload: CameraUpdate) -> dict[str, Any]:
+    if not database.get_camera(camera_id):
+        raise HTTPException(status_code=404, detail="Camera not found")
+    values = payload_values(payload)
+    if "host" in values:
+        try:
+            values["host"] = normalize_host(values["host"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if "password" in values and not values["password"]:
+        del values["password"]
+    if "name" in values:
+        values["name"] = values["name"].strip()
+    if "host" in values:
+        camera_monitor.invalidate_snapshot(camera_id)
+    return {"camera": database.update_camera(camera_id, values)}
+
+
+@app.delete("/api/cameras/{camera_id}", dependencies=[Depends(require_auth)])
+async def delete_camera(camera_id: int) -> dict[str, bool]:
+    if not database.delete_camera(camera_id):
+        raise HTTPException(status_code=404, detail="Camera not found")
+    camera_monitor.invalidate_snapshot(camera_id)
+    return {"deleted": True}
+
+
+@app.get("/api/cameras/activity", dependencies=[Depends(require_auth)])
+async def camera_activity() -> dict[str, Any]:
+    return camera_monitor.activity()
+
+
+@app.post("/api/cameras/{camera_id}/test", dependencies=[Depends(require_auth)])
+async def test_camera(camera_id: int) -> dict[str, Any]:
+    camera = database.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    return await camera_monitor.test(camera)
+
+
+@app.get("/api/cameras/{camera_id}/snapshot", dependencies=[Depends(require_auth)])
+async def camera_snapshot(camera_id: int) -> Response:
+    camera = database.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    snapshot = camera_monitor.snapshot_bytes(camera_id)
+    if not snapshot:
+        try:
+            async with httpx.AsyncClient() as client:
+                snapshot = await ReolinkCamera(camera).snapshot(client)
+            camera_monitor.invalidate_snapshot(camera_id)
+        except ReolinkError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return Response(
+        content=snapshot,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/api/reminders/lists", dependencies=[Depends(require_auth)])
+async def reminder_lists() -> dict[str, Any]:
+    lists, error = await reminders.discover_lists()
+    return {"lists": lists, "error": error}
+
+
+@app.post("/api/reminders/sync", dependencies=[Depends(require_auth)])
+async def sync_reminders() -> dict[str, Any]:
+    return await reminders.sync()
+
+
+@app.get("/api/notes/icloud", dependencies=[Depends(require_auth)])
+async def icloud_note() -> dict[str, Any]:
+    return await icloud_notes.fetch()
+
+
+@app.post("/api/notes/icloud/save", dependencies=[Depends(require_auth)])
+async def save_icloud_note(payload: NotesIcloudSaveRequest) -> dict[str, Any]:
+    return await icloud_notes.save(payload.content)
 
 
 if settings.static_dir.exists():

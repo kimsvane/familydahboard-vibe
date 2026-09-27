@@ -101,6 +101,31 @@ class ChecklistUpdate(Model):
     sort_order: Optional[int] = Field(default=None, ge=0, le=10000)
 
 
+class CameraCreate(Model):
+    name: str = Field(min_length=1, max_length=120)
+    host: str = Field(min_length=3, max_length=500)
+    username: str = Field(default="", max_length=320)
+    password: str = Field(default="", max_length=200)
+    channel: int = Field(default=0, ge=0, le=31)
+    person_enabled: bool = True
+    vehicle_enabled: bool = True
+    snapshots_enabled: bool = True
+    live_stream_url: str = Field(default="", max_length=2000)
+
+
+class CameraUpdate(Model):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    host: Optional[str] = Field(default=None, min_length=3, max_length=500)
+    username: Optional[str] = Field(default=None, max_length=320)
+    password: Optional[str] = Field(default=None, max_length=200)
+    channel: Optional[int] = Field(default=None, ge=0, le=31)
+    person_enabled: Optional[bool] = None
+    vehicle_enabled: Optional[bool] = None
+    snapshots_enabled: Optional[bool] = None
+    live_stream_url: Optional[str] = Field(default=None, max_length=2000)
+    sort_order: Optional[int] = Field(default=None, ge=0, le=10000)
+
+
 class SettingsUpdate(Model):
     display_name: Optional[str] = Field(default=None, max_length=120)
     header_title: Optional[str] = Field(default=None, max_length=120)
@@ -113,3 +138,20 @@ class SettingsUpdate(Model):
     show_seconds: Optional[bool] = None
     weather_enabled: Optional[bool] = None
     theme: Optional[str] = Field(default=None, max_length=40)
+    reminders_enabled: Optional[bool] = None
+    reminders_username: Optional[str] = Field(default=None, max_length=320)
+    reminders_app_password: Optional[str] = Field(default=None, max_length=200)
+    reminders_list_name: Optional[str] = Field(default=None, max_length=200)
+    reminders_list_href: Optional[str] = Field(default=None, max_length=1000)
+    reminders_sync_minutes: Optional[int] = Field(default=None, ge=1, le=120)
+    notes_imap_enabled: Optional[bool] = None
+    notes_imap_username: Optional[str] = Field(default=None, max_length=320)
+    notes_imap_app_password: Optional[str] = Field(default=None, max_length=200)
+    notes_imap_host: Optional[str] = Field(default=None, max_length=200)
+    notes_imap_note_title: Optional[str] = Field(default=None, max_length=200)
+    reolink_poll_seconds: Optional[int] = Field(default=None, ge=2, le=60)
+    reolink_close_delay: Optional[int] = Field(default=None, ge=0, le=60)
+
+
+class NotesIcloudSaveRequest(Model):
+    content: str = Field(default="", max_length=10000)

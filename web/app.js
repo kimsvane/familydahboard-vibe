@@ -8,6 +8,13 @@ const state = {
   activeView: localStorage.getItem("fd-view") || "today",
   refreshTimer: null,
   clockTimer: null,
+  settings: {},
+  cameras: [],
+  cameraBroken: new Set(),
+  reminderLists: [],
+  icloudNote: null,
+  cameraTimer: null,
+  detectTimer: null,
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -115,6 +122,10 @@ function showToast(message, error = false) {
 function showLogin() {
   if (state.clockTimer) window.clearInterval(state.clockTimer);
   if (state.refreshTimer) window.clearInterval(state.refreshTimer);
+  if (state.cameraTimer) window.clearInterval(state.cameraTimer);
+  state.cameraTimer = null;
+  if (state.detectTimer) window.clearTimeout(state.detectTimer);
+  state.detectTimer = null;
   appShell.hidden = true;
   loginScreen.hidden = false;
   window.setTimeout(() => $("#login-password")?.focus(), 0);
@@ -128,6 +139,8 @@ function showApp() {
   state.clockTimer = window.setInterval(updateClock, 1000);
   if (state.refreshTimer) window.clearInterval(state.refreshTimer);
   state.refreshTimer = window.setInterval(() => loadSummary(true), 60000);
+  loadCameras(true);
+  if (state.settings.notes_imap_configured) loadIcloudNote(true);
 }
 
 function updateClock() {
@@ -148,6 +161,7 @@ function renderSummary() {
   const summary = state.summary;
   if (!summary) return;
   const settings = summary.settings || {};
+  state.settings = settings;
   const displayName = settings.display_name || "Familiedashboard";
   $("#brand-title").textContent = displayName;
   $("#brand-subtitle").textContent = settings.location_name || "Din families hjem";
@@ -174,6 +188,7 @@ function renderSummary() {
   renderSources(summary.sources || []);
   renderFrames(summary.frames || []);
   renderSettings(summary);
+  renderIcloudNote();
   $("#last-updated").textContent = `Opdateret ${formatTime(summary.generated_at)}`;
   $("#dashboard-url").textContent = window.location.origin;
 }
@@ -248,7 +263,23 @@ function renderMembers(members) {
 
 function renderChecklist(items) {
   const target = $("#today-checklist");
-  target.innerHTML = items.length ? items.slice(0, 7).map((item) => `<div class="check-row ${item.done ? "done" : ""}"><input type="checkbox" data-check-id="${item.id}" ${item.done ? "checked" : ""} aria-label="${escapeHtml(item.text)}"><label>${escapeHtml(item.text)}</label></div>`).join("") : `<div class="empty-state">Ingen opgaver lige nu.</div>`;
+  target.innerHTML = items.length ? items.slice(0, 12).map((item) => `<div class="check-row ${item.done ? "done" : ""}"><input type="checkbox" data-check-id="${item.id}" ${item.done ? "checked" : ""} aria-label="${escapeHtml(item.text)}"><label>${escapeHtml(item.text)}</label>${item.source === "icloud" ? `<span class="check-badge">iCloud</span>` : ""}<span class="check-actions"><button class="icon-button" data-edit-check="${item.id}" type="button" aria-label="Rediger opgave" title="Rediger">✎</button><button class="icon-button" data-delete-check="${item.id}" type="button" aria-label="Slet opgave" title="Slet">×</button></span></div>`).join("") : `<div class="empty-state">Ingen opgaver lige nu.</div>`;
+}
+
+function renderIcloudNote() {
+  const card = $("#icloud-note-card");
+  const configured = state.settings.notes_imap_configured;
+  const note = state.icloudNote;
+  card.hidden = !(configured && note?.enabled);
+  if (card.hidden) return;
+  $("#icloud-note-title").textContent = note.title || $("#setting-notes-title").value || "iCloud-note";
+  if (note.error && note.error !== "disabled") {
+    $("#today-icloud-note").innerHTML = `<p class="muted small-copy">${escapeHtml(note.error)}</p>`;
+  } else if (note.content) {
+    $("#today-icloud-note").innerHTML = `<p>${escapeHtml(note.content)}</p>`;
+  } else {
+    $("#today-icloud-note").innerHTML = `<p class="muted small-copy">Noten er tom eller blev ikke fundet endnu.</p>`;
+  }
 }
 
 function renderNotes(notes) {
@@ -303,7 +334,37 @@ function renderSettings(summary) {
   const sources = summary.sources || [];
   const calendarCount = sources.filter((source) => (source.kind || "calendar") === "calendar").length;
   const schoolCount = sources.filter((source) => source.kind === "school").length;
-  $("#settings-status").textContent = `${calendarCount} kalendere · ${schoolCount} skoleskemaer · ${summary.frames?.length || 0} widgets · ${summary.birthdays?.length || 0} fødselsdage`;
+  $("#settings-status").textContent = `${calendarCount} kalendere · ${schoolCount} skoleskemaer · ${summary.frames?.length || 0} widgets · ${summary.birthdays?.length || 0} fødselsdage · ${state.cameras.length} kameraer`;
+  const remindersForm = $("#icloud-reminders-form");
+  remindersForm.elements.reminders_enabled.checked = settings.reminders_enabled === true || settings.reminders_enabled === "true";
+  remindersForm.elements.reminders_username.value = settings.reminders_username || "";
+  remindersForm.elements.reminders_sync_minutes.value = settings.reminders_sync_minutes || "";
+  populateReminderListSelect(settings.reminders_list_href, settings.reminders_list_name);
+  const remindersBadge = $("#reminders-status");
+  remindersBadge.textContent = settings.reminders_configured ? "Aktiv" : "Ikke konfigureret";
+  remindersBadge.classList.toggle("ok", !!settings.reminders_configured);
+  remindersBadge.classList.toggle("error", !settings.reminders_configured);
+  if (settings.reminders_configured && !settings.reminders_list_href) remindersBadge.textContent = "Manglende liste";
+  const notesForm = $("#icloud-notes-form");
+  notesForm.elements.notes_imap_enabled.checked = settings.notes_imap_enabled === true || settings.notes_imap_enabled === "true";
+  notesForm.elements.notes_imap_username.value = settings.notes_imap_username || "";
+  notesForm.elements.notes_imap_host.value = settings.notes_imap_host || "imap.mail.me.com";
+  notesForm.elements.notes_imap_note_title.value = settings.notes_imap_note_title || "";
+  const notesBadge = $("#notes-status");
+  notesBadge.textContent = settings.notes_imap_configured ? "Aktiv" : "Ikke konfigureret";
+  notesBadge.classList.toggle("ok", !!settings.notes_imap_configured);
+  notesBadge.classList.toggle("error", !settings.notes_imap_configured);
+  const reolinkForm = $("#reolink-form");
+  reolinkForm.elements.reolink_poll_seconds.value = settings.reolink_poll_seconds || 5;
+  reolinkForm.elements.reolink_close_delay.value = settings.reolink_close_delay ?? 0;
+}
+
+function populateReminderListSelect(href = "", name = "") {
+  const select = $("#setting-reminders-list");
+  const lists = state.reminderLists || [];
+  const options = lists.map((list) => `<option value="${escapeHtml(list.href)}" data-name="${escapeHtml(list.name)}" ${href === list.href ? "selected" : ""}>${escapeHtml(list.name)}</option>`).join("");
+  const fallback = !lists.length && href ? `<option value="${escapeHtml(href)}" data-name="${escapeHtml(name)}" selected>${escapeHtml(name || href)}</option>` : "";
+  select.innerHTML = `<option value="" data-name="">— Vælg liste —</option>${options}${fallback}`;
 }
 
 function openModal(title, body, onSubmit, submitLabel = "Gem") {
@@ -397,6 +458,187 @@ function openNoteModal() {
   }, "Tilføj");
 }
 
+function detectLabel(type) {
+  const labels = { person: "Person", vehicle: "Køretøj", car: "Bil", pet: "Kæledyr", animal: "Dyr", package: "Pakke" };
+  return labels[String(type || "").toLowerCase()] || type || "Aktivitet";
+}
+
+function renderCameras() {
+  const target = $("#camera-grid");
+  if (!state.cameras.length) {
+    target.innerHTML = `<div class="empty-state">Ingen kameraer endnu. Tryk på “Tilføj kamera” for at komme i gang.</div>`;
+    $("#camera-activity-log").hidden = true;
+    return;
+  }
+  target.innerHTML = state.cameras.map((camera) => `<article class="panel camera-item"><div class="camera-header"><div class="camera-name"><strong>${escapeHtml(camera.name)}</strong><span>${escapeHtml(camera.host)}</span></div><div class="camera-actions"><button class="icon-button" data-test-camera="${camera.id}" type="button" aria-label="Test forbindelse" title="Test">↻</button><button class="icon-button" data-edit-camera="${camera.id}" type="button" aria-label="Rediger kamera" title="Rediger">✎</button><button class="icon-button" data-delete-camera="${camera.id}" type="button" aria-label="Slet kamera" title="Slet">×</button></div></div><div class="camera-snapshot" data-camera-snapshot-box>${camera.live_stream_url ? `<span class="camera-live">LIVE</span>` : ""}<img data-cam-img data-cam-id="${camera.id}" src="/api/cameras/${camera.id}/snapshot?t=${Date.now()}" alt="Snapshot fra ${escapeHtml(camera.name)}" loading="lazy"></div></article>`).join("");
+  $$("img[data-cam-img]", target).forEach((image) => {
+    image.addEventListener("error", () => {
+      const box = image.closest("[data-camera-snapshot-box]");
+      state.cameraBroken.add(String(image.dataset.camId));
+      image.style.display = "none";
+      let overlay = box?.querySelector(".camera-overlay");
+      if (box && !overlay) {
+        overlay = document.createElement("div");
+        overlay.className = "camera-overlay";
+        overlay.textContent = "Ingen forbindelse";
+        box.append(overlay);
+      }
+    });
+    image.addEventListener("load", () => state.cameraBroken.delete(String(image.dataset.camId)));
+  });
+}
+
+function refreshCameraSnapshots() {
+  $$("#camera-grid img[data-cam-img]").forEach((image) => {
+    const id = String(image.dataset.camId);
+    if (state.cameraBroken.has(id)) return;
+    image.src = `/api/cameras/${id}/snapshot?t=${Date.now()}`;
+  });
+}
+
+function renderActivity(activity) {
+  const recent = activity.recent || [];
+  const panel = $("#camera-activity-log");
+  const list = $("#camera-activity-list");
+  if (!recent.length) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const activeIds = new Set((activity.active || []).map((camera) => String(camera.id)));
+  list.innerHTML = recent.map((entry) => {
+    const ongoing = !entry.ended_at;
+    const when = ongoing ? `Startet ${formatTime(entry.started_at)}` : `${formatTime(entry.started_at)} – ${formatTime(entry.ended_at)}`;
+    return `<div class="activity-item${activeIds.has(String(entry.camera_id)) ? " active" : ""}"><span>${escapeHtml(entry.camera_name || "Kamera")}</span><span class="activity-type">${escapeHtml(detectLabel(entry.detection_type))}</span><span class="activity-time">${escapeHtml(when)}</span></div>`;
+  }).join("");
+}
+
+function handleDetections(activity) {
+  if (state.detectTimer) window.clearTimeout(state.detectTimer);
+  state.detectTimer = null;
+  const popup = $("#detect-popup");
+  const active = activity.active || [];
+  if (!active.length) {
+    popup.hidden = true;
+    popup.innerHTML = "";
+    return;
+  }
+  popup.hidden = false;
+  popup.innerHTML = active.map((camera) => {
+    const types = (camera.types || []).map((item) => detectLabel(item.label || item.type)).join(" og ") || "Aktivitet";
+    return `<div class="detect-card"><div class="detect-head"><h2>${escapeHtml(camera.name)}</h2><span class="detect-types">${escapeHtml(types)}</span></div><img src="/api/cameras/${camera.id}/snapshot?t=${Date.now()}" alt="Kamerabillede"><div class="detect-foot"><span>Detekteret ${escapeHtml(formatTime(camera.since))}</span><span>Lukker automatisk</span></div></div>`;
+  }).join("");
+  const closeDelay = Number(activity.close_delay || 0);
+  if (closeDelay > 0) state.detectTimer = window.setTimeout(() => { const root = $("#detect-popup"); root.hidden = true; }, closeDelay * 1000);
+}
+
+async function pollCameras() {
+  try {
+    const activity = await api("/api/cameras/activity");
+    renderActivity(activity);
+    handleDetections(activity);
+    const interval = Math.max(2, Number(activity.poll_seconds) || 5);
+    if (state.cameraTimer) window.clearInterval(state.cameraTimer);
+    state.cameraTimer = window.setInterval(() => { refreshCameraSnapshots(); pollCameras(); }, interval * 1000);
+  } catch (error) {
+    if (state.cameraTimer) window.clearInterval(state.cameraTimer);
+    state.cameraTimer = null;
+  }
+}
+
+async function loadCameras(silent = true) {
+  try {
+    const result = await api("/api/cameras");
+    state.cameras = result.cameras || [];
+    renderCameras();
+    if (!state.cameraTimer) pollCameras();
+  } catch (error) {
+    if (!silent) showToast(error.message, true);
+  }
+}
+
+async function deleteCamera(cameraId) {
+  if (!window.confirm("Vil du slette dette kamera?")) return;
+  try {
+    await api(`/api/cameras/${cameraId}`, { method: "DELETE" });
+    state.cameraBroken.delete(String(cameraId));
+    await loadCameras();
+    showToast("Kameraet er slettet");
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+function openCameraModal(camera = null) {
+  const title = camera ? "Rediger kamera" : "Tilføj kamera";
+  const passwordField = camera ? " placeholder=\"Uændret hvis tomt\"" : "";
+  const body = `${field("Navn", "name", camera?.name || "", "text", "required maxlength=120")}${field("Adresse", "host", camera?.host || "", "text", "required maxlength=500 placeholder='http://192.168.1.100'")}${field("Brugernavn", "username", camera?.username || "", "text", "maxlength=320")}${field("Password", "password", "", "password", `maxlength=200${passwordField}`)}<div class="form-row"><div><label for="field-channel">Kanal</label><input id="field-channel" name="channel" type="number" value="${escapeHtml(camera?.channel ?? 0)}" min="0" max="31" step="1"></div><div><label for="field-live-stream-url">Live-stream URL (valgfrit)</label><input id="field-live-stream-url" name="live_stream_url" type="url" value="${escapeHtml(camera?.live_stream_url || "")}" maxlength="2000"></div></div><div class="form-row"><label class="check-label"><input type="checkbox" name="person_enabled" ${camera?.person_enabled !== false ? "checked" : ""}> Person-alarm</label><label class="check-label"><input type="checkbox" name="vehicle_enabled" ${camera?.vehicle_enabled !== false ? "checked" : ""}> Køretøj-alarm</label><label class="check-label"><input type="checkbox" name="snapshots_enabled" ${camera?.snapshots_enabled !== false ? "checked" : ""}> Snapshots</label></div>`;
+  openModal(title, body, async (values) => {
+    const payload = {
+      name: values.name,
+      host: values.host,
+      username: (values.username || "").trim(),
+      password: values.password || "",
+      channel: Number(values.channel || 0),
+      live_stream_url: (values.live_stream_url || "").trim(),
+      person_enabled: values.person_enabled === "on",
+      vehicle_enabled: values.vehicle_enabled === "on",
+      snapshots_enabled: values.snapshots_enabled === "on",
+    };
+    await api(camera ? `/api/cameras/${camera.id}` : "/api/cameras", { method: camera ? "PATCH" : "POST", body: payload });
+    showToast(camera ? "Kameraet er opdateret" : "Kameraet er tilføjet");
+    await loadCameras();
+  }, title);
+}
+
+async function testCamera(cameraId) {
+  if (!state.summary) return;
+  try {
+    const result = await api(`/api/cameras/${cameraId}/test`, { method: "POST" });
+    const lines = result.message ? String(result.message).split("|").filter(Boolean) : [];
+    showToast(result.ok ? (lines[0] || "Kameraet svarer") : (result.message || "Test fejlede"), !result.ok);
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+function openIcloudNoteModal() {
+  const note = state.icloudNote;
+  const body = `<label for="field-note-content">Indhold</label><textarea id="field-note-content" name="content" maxlength="10000" placeholder="Skriv her…">${escapeHtml(note?.content || "")}</textarea>`;
+  openModal("Rediger iCloud-note", body, async (values) => {
+    await api("/api/notes/icloud/save", { method: "POST", body: { content: values.content || "" } });
+    await loadIcloudNote();
+    await loadSummary(true);
+    showToast("Noten er gemt til iCloud");
+  }, "Gem note");
+}
+
+async function loadIcloudNote(silent = true) {
+  try {
+    state.icloudNote = await api("/api/notes/icloud");
+    renderIcloudNote();
+  } catch (error) {
+    if (!silent) showToast(error.message, true);
+  }
+}
+
+function openChecklistItemModal(item) {
+  const body = `${field("Opgave", "text", item?.text || "", "text", "required maxlength=500")}`;
+  openModal("Rediger opgave", body, async (values) => {
+    await api(`/api/checklist/${item.id}`, { method: "PATCH", body: { text: values.text } });
+    await loadSummary(true);
+    showToast("Opgaven er opdateret");
+  }, "Gem");
+}
+
+async function deleteChecklistItem(itemId, icloud) {
+  if (!window.confirm(icloud ? "Slet opgaven fra den delte iCloud-liste?" : "Vil du slette denne opgave?")) return;
+  try {
+    await api(`/api/checklist/${itemId}`, { method: "DELETE" });
+    await loadSummary(true);
+    showToast("Opgaven er slettet");
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
 async function synchroniseSingle(id) {
   try {
     const result = await api(`/api/calendars/${id}/sync`, { method: "POST" });
@@ -432,6 +674,7 @@ function showView(view) {
   available.forEach((panel) => panel.classList.toggle("active", panel.dataset.viewPanel === target));
   if (target === "calendar") loadCalendarEvents();
   if (target === "school") loadSchoolEvents();
+  if (target === "cameras") loadCameras(true);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -593,6 +836,64 @@ function bindEvents() {
   $("#settings-add-birthday").addEventListener("click", () => openBirthdayModal());
   $("#settings-add-frame").addEventListener("click", () => openFrameModal());
   $("#settings-add-note").addEventListener("click", () => openNoteModal());
+  $("#add-camera-button").addEventListener("click", () => openCameraModal());
+  $("#settings-add-camera").addEventListener("click", () => openCameraModal());
+  $("#cameras-refresh").addEventListener("click", async () => { await loadCameras(false); refreshCameraSnapshots(); showToast("Kameraer opdateret"); });
+  $("#icloud-note-edit").addEventListener("click", () => openIcloudNoteModal());
+  $("#icloud-reminders-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+    delete values.reminders_list_href;
+    delete values.reminders_list_name;
+    const select = $("#setting-reminders-list");
+    const selected = select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+    if (selected && selected.value) {
+      values.reminders_list_href = selected.value;
+      values.reminders_list_name = selected.dataset.name || "";
+    }
+    if (!values.reminders_app_password) delete values.reminders_app_password;
+    values.reminders_enabled = values.reminders_enabled === "on";
+    values.reminders_sync_minutes = Number(values.reminders_sync_minutes) || undefined;
+    try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); showToast("Påmindelser gemt"); } catch (error) { showToast(error.message, true); }
+  });
+  $("#reminders-fetch-lists").addEventListener("click", async () => {
+    const button = $("#reminders-fetch-lists");
+    button.disabled = true;
+    try {
+      const result = await api("/api/reminders/lists");
+      if (result.error) showToast(`Kunne ikke hente lister: ${result.error}`, true);
+      state.reminderLists = result.lists || [];
+      populateReminderListSelect(state.settings.reminders_list_href, state.settings.reminders_list_name);
+      showToast(state.reminderLists.length ? `${state.reminderLists.length} lister fundet` : "Ingen lister fundet", !state.reminderLists.length);
+    } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+  });
+  $("#reminders-sync-now").addEventListener("click", async () => {
+    try {
+      const result = await api("/api/reminders/sync", { method: "POST" });
+      showToast(result.ok ? "Checklisten er synkroniseret" : `Synk fejlede: ${result.error || "ukendt fejl"}`, !result.ok);
+      await loadSummary(true);
+    } catch (error) { showToast(error.message, true); }
+  });
+  $("#icloud-notes-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+    if (!values.notes_imap_app_password) delete values.notes_imap_app_password;
+    values.notes_imap_enabled = values.notes_imap_enabled === "on";
+    try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); await loadIcloudNote(); showToast("Note-indstillinger gemt"); } catch (error) { showToast(error.message, true); }
+  });
+  $("#notes-fetch-now").addEventListener("click", async () => {
+    try {
+      await loadIcloudNote(false);
+      showToast(state.icloudNote?.content ? "Noten er hentet" : "Noten er tom eller ikke fundet", !state.icloudNote?.content);
+    } catch (error) { showToast(error.message, true); }
+  });
+  $("#reolink-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+    values.reolink_poll_seconds = Number(values.reolink_poll_seconds) || undefined;
+    values.reolink_close_delay = Number(values.reolink_close_delay) || 0;
+    try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); await loadCameras(); showToast("Kamera-indstillinger gemt"); } catch (error) { showToast(error.message, true); }
+  });
   $("#copy-url-button").addEventListener("click", async () => { await navigator.clipboard?.writeText(window.location.origin); showToast("Adresse kopieret"); });
   $("#quick-checklist-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -632,6 +933,11 @@ function bindEvents() {
     if (target.dataset.deleteFrame) deleteResource(`/api/frames/${target.dataset.deleteFrame}`, "Vil du slette denne widget?");
     if (target.dataset.editMember) openMemberModal(findResource("member", target.dataset.editMember));
     if (target.dataset.deleteMember) deleteResource(`/api/members/${target.dataset.deleteMember}`, "Vil du slette dette familiemedlem?");
+    if (target.dataset.editCamera) openCameraModal(state.cameras.find((camera) => String(camera.id) === String(target.dataset.editCamera)));
+    if (target.dataset.deleteCamera) deleteCamera(target.dataset.deleteCamera);
+    if (target.dataset.testCamera) testCamera(target.dataset.testCamera);
+    if (target.dataset.editCheck) openChecklistItemModal(state.summary.checklist.find((item) => String(item.id) === String(target.dataset.editCheck)));
+    if (target.dataset.deleteCheck) deleteChecklistItem(target.dataset.deleteCheck, state.summary.checklist.find((item) => String(item.id) === String(target.dataset.deleteCheck))?.source === "icloud");
   });
   modalRoot.addEventListener("click", (event) => { if (event.target === modalRoot || event.target.closest("[data-close-modal]")) closeModal(); });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !modalRoot.hidden) closeModal(); });

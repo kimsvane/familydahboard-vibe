@@ -51,6 +51,7 @@
       <button class="nav-button" data-view="school" type="button">Skoleskema</button>
       <button class="nav-button" data-view="birthdays" type="button">Fødselsdage</button>
       <button class="nav-button" data-view="widgets" type="button">Widgets</button>
+      <button class="nav-button" data-view="cameras" type="button">Kameraer</button>
       <button class="nav-button" data-view="settings" type="button">Indstillinger</button>
     </nav>
 
@@ -117,6 +118,10 @@
           <article class="panel">
             <div class="panel-heading"><div><p class="eyebrow">Huskesedler</p><h2>Noter</h2></div></div>
             <div id="today-notes" class="notes-list"></div>
+          </article>
+          <article class="panel" id="icloud-note-card" hidden>
+            <div class="panel-heading"><div><p class="eyebrow">Fra iCloud</p><h2 id="icloud-note-title">iCloud-note</h2></div><button class="icon-button" id="icloud-note-edit" type="button" aria-label="Rediger iCloud-note" title="Rediger">✎</button></div>
+            <div id="today-icloud-note" class="icloud-note-body"><p class="muted small-copy">Indlæser…</p></div>
           </article>
         </div>
       </section>
@@ -190,6 +195,22 @@
         <div id="frame-grid" class="frame-grid"></div>
       </section>
 
+      <section id="view-cameras" class="view" data-view-panel="cameras">
+        <div class="section-heading">
+          <div><p class="eyebrow">Person- og køretøjsalarm</p><h1>Kameraer</h1></div>
+          <div class="section-actions">
+            <button class="button secondary" id="cameras-refresh" type="button">Opdater</button>
+            <button class="button primary" id="add-camera-button" type="button">Tilføj kamera</button>
+          </div>
+        </div>
+        <p class="section-copy">Reolink-kameraer hentes direkte via kameraets egen API. Når AI-detektion registrerer personer eller køretøjer, vises der automatisk en alarm-popup på skærmen.</p>
+        <div id="camera-grid" class="camera-grid"></div>
+        <div id="camera-activity-log" class="camera-activity-log" hidden>
+          <div class="panel-heading"><div><p class="eyebrow">Seneste hændelser</p><h2>Aktivitetslog</h2></div></div>
+          <div id="camera-activity-list" class="activity-list"></div>
+        </div>
+      </section>
+
       <section id="view-settings" class="view" data-view-panel="settings">
         <div class="section-heading"><div><p class="eyebrow">Tilpas familiens rum</p><h1>Indstillinger</h1></div></div>
         <div class="settings-grid">
@@ -215,8 +236,53 @@
             <p class="muted small-copy">Integrationen i mappen <code>homeassistant/</code> kan tilføjes som en custom integration eller bruges til Lovelace-kortet.</p>
           </article>
           <article class="panel settings-card wide">
+            <div class="panel-heading"><div><p class="eyebrow">iCloud</p><h2>Delte checkliste (Påmindelser)</h2></div><span class="status-badge" id="reminders-status">Ikke konfigureret</span></div>
+            <form id="icloud-reminders-form" class="stack-form">
+              <label class="check-label"><input type="checkbox" name="reminders_enabled"> Aktivér synk med iCloud Påmindelser</label>
+              <label for="setting-reminders-username">Apple-id</label><input id="setting-reminders-username" name="reminders_username" type="email" maxlength="320" autocomplete="username">
+              <label for="setting-reminders-password">App-specifikt password</label><input id="setting-reminders-password" name="reminders_app_password" type="password" autocomplete="new-password" placeholder="Kun nødvendigt, hvis det skal ændres">
+              <label for="setting-reminders-list">Påmindelsesliste</label>
+              <div class="form-row align-end">
+                <select id="setting-reminders-list" name="reminders_list_href"></select>
+                <button class="button secondary" id="reminders-fetch-lists" type="button">Hent lister</button>
+              </div>
+              <input type="hidden" name="reminders_list_name" id="setting-reminders-list-name">
+              <label for="setting-reminders-interval">Synk hver (minutter)</label><input id="setting-reminders-interval" name="reminders_sync_minutes" type="number" min="1" max="120" step="1">
+              <div class="form-row">
+                <button class="button primary" type="submit">Gem Påmindelser</button>
+                <button class="button secondary" id="reminders-sync-now" type="button">Synk nu</button>
+              </div>
+              <p class="muted small-copy" id="reminders-help">Brug dit Apple-id og et app-specifikt adgangskode (appleid.apple.com → Adgangskode → App-specifikke adgangskoder). Listen, du vælger her, bliver tovejssynkroniseret med checklisten på dashboardet.</p>
+            </form>
+          </article>
+          <article class="panel settings-card wide">
+            <div class="panel-heading"><div><p class="eyebrow">iCloud</p><h2>Delte note (Note på iPhone)</h2></div><span class="status-badge" id="notes-status">Ikke konfigureret</span></div>
+            <form id="icloud-notes-form" class="stack-form">
+              <label class="check-label"><input type="checkbox" name="notes_imap_enabled"> Aktivér visning af note fra iCloud</label>
+              <label for="setting-notes-username">Apple-id</label><input id="setting-notes-username" name="notes_imap_username" type="email" maxlength="320" autocomplete="username">
+              <label for="setting-notes-password">App-specifikt password</label><input id="setting-notes-password" name="notes_imap_app_password" type="password" autocomplete="new-password" placeholder="Kun nødvendigt, hvis det skal ændres">
+              <label for="setting-notes-host">IMAP-server</label><input id="setting-notes-host" name="notes_imap_host" type="text" maxlength="200">
+              <label for="setting-notes-title">Note-titel (præcis titel i iCloud)</label><input id="setting-notes-title" name="notes_imap_note_title" type="text" maxlength="200">
+              <div class="form-row">
+                <button class="button primary" type="submit">Gem Note-indstillinger</button>
+                <button class="button secondary" id="notes-fetch-now" type="button">Hent note</button>
+              </div>
+              <p class="muted small-copy" id="notes-help">Bukkende: Kun en note med nøjagtig samme titel i Notes-appen opdateres. Skrivning til iCloud sker via IMAP og er eksperimentel.</p>
+            </form>
+          </article>
+          <article class="panel settings-card wide">
+            <div class="panel-heading"><div><p class="eyebrow">Overvågning</p><h2>Reolink-kameraer</h2></div><span class="muted">Kameraer tilføjes under “Kameraer”</span></div>
+            <form id="reolink-form" class="stack-form">
+              <div class="form-row">
+                <div><label for="setting-reolink-poll">Poll-interval (sekunder)</label><input id="setting-reolink-poll" name="reolink_poll_seconds" type="number" min="2" max="60" step="1"></div>
+                <div><label for="setting-reolink-close">Automatisk luk popup efter (sekunder)</label><input id="setting-reolink-close" name="reolink_close_delay" type="number" min="0" max="60" step="1"></div>
+              </div>
+              <button class="button primary" type="submit">Gem kamera-indstillinger</button>
+            </form>
+          </article>
+          <article class="panel settings-card wide">
             <div class="panel-heading"><div><p class="eyebrow">Data</p><h2>Kalender- og widgetkilder</h2></div></div>
-            <div class="settings-action-grid"><button class="button secondary" id="settings-add-calendar" type="button">Tilføj kalender</button><button class="button secondary" id="settings-add-school" type="button">Tilføj skoleskema</button><button class="button secondary" id="settings-add-birthday" type="button">Tilføj fødselsdag</button><button class="button secondary" id="settings-add-frame" type="button">Tilføj iframe</button><button class="button secondary" id="settings-add-note" type="button">Tilføj note</button></div>
+            <div class="settings-action-grid"><button class="button secondary" id="settings-add-calendar" type="button">Tilføj kalender</button><button class="button secondary" id="settings-add-school" type="button">Tilføj skoleskema</button><button class="button secondary" id="settings-add-birthday" type="button">Tilføj fødselsdag</button><button class="button secondary" id="settings-add-frame" type="button">Tilføj iframe</button><button class="button secondary" id="settings-add-note" type="button">Tilføj note</button><button class="button secondary" id="settings-add-camera" type="button">Tilføj kamera</button></div>
             <div id="settings-status" class="settings-status"></div>
           </article>
         </div>
@@ -226,6 +292,7 @@
     <footer class="app-footer"><span>Family Dashboard</span><span id="last-updated">—</span><button class="text-button" id="logout-button" type="button">Log ud</button></footer>
   </div>
 
+  <div id="detect-popup" class="detect-popup" hidden></div>
   <div id="modal-root" class="modal-root" hidden></div>
   <div id="toast-root" class="toast-root" aria-live="polite"></div>
   <script src="/assets/app.js" defer></script>
