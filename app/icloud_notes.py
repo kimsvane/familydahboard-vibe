@@ -151,6 +151,7 @@ class ICloudNotes:
             for mailbox in candidates
             if "notes" in _decode_folder(mailbox).lower().replace(" ", "")
         ]
+        logger.debug("IMAP-mapper: %r -> notes-kandidater: %r", candidates, notes)
         if not notes:
             raise NotesError("IMAP Notes-mappen blev ikke fundet i din iCloud-konto")
         return notes
@@ -175,6 +176,7 @@ class ICloudNotes:
         )
         if typ != "OK":
             return None
+        subjects: list[str] = []
         for item in messages:
             if not isinstance(item, tuple) or not item:
                 continue
@@ -185,8 +187,17 @@ class ICloudNotes:
                 continue
             message = email.message_from_bytes(body)
             subject = str(message.get("subject") or "").strip()
+            subjects.append(subject)
             if subject == title or subject.casefold() == title.casefold():
+                logger.debug("Note fundet i mappe %r med uid %r (titlen matcher)", folder, match.group(1).decode())
                 return match.group(1).decode()
+        logger.debug(
+            "Mappe %r: %d uid(s), titel %r ikke fundet blandt emner %r",
+            folder,
+            len(uids),
+            title,
+            subjects[:20],
+        )
         return None
 
     def _find_note(

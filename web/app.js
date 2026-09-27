@@ -370,6 +370,8 @@ function renderSettings(summary) {
   const reolinkForm = $("#reolink-form");
   reolinkForm.elements.reolink_poll_seconds.value = settings.reolink_poll_seconds || 5;
   reolinkForm.elements.reolink_close_delay.value = settings.reolink_close_delay ?? 0;
+  const loggingForm = $("#logging-form");
+  if (loggingForm) loggingForm.elements.log_level.value = settings.log_level || "warning";
 }
 
 function populateReminderListSelect(href = "", name = "") {
@@ -982,6 +984,12 @@ function bindEvents() {
     values.reolink_poll_seconds = Number(values.reolink_poll_seconds) || undefined;
     values.reolink_close_delay = Number(values.reolink_close_delay) || 0;
     try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); await loadCameras(); showToast("Kamera-indstillinger gemt"); } catch (error) { showToast(error.message, true); }
+  });
+  const loggingForm = $("#logging-form");
+  if (loggingForm) loggingForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const values = { log_level: loggingForm.elements.log_level.value };
+    try { await api("/api/settings", { method: "PATCH", body: values }); showToast("Log-indstillinger gemt"); } catch (error) { showToast(error.message, true); }
   });
   $("#copy-url-button").addEventListener("click", async () => { await navigator.clipboard?.writeText(window.location.origin); showToast("Adresse kopieret"); });
   $("#quick-checklist-form").addEventListener("submit", async (event) => {

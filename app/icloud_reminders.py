@@ -166,6 +166,15 @@ class CalDAVRemindersClient:
             )
         except httpx.HTTPError as exc:
             raise CalDAVError(f"CalDAV request failed: {exc}") from exc
+        if response.status_code >= 400:
+            logger.debug(
+                "CalDAV %s %s -> %s; headers=%s; body=%r",
+                method,
+                url,
+                response.status_code,
+                dict(response.headers),
+                (response.text or "")[:300],
+            )
         if response.status_code == 401:
             raise CalDAVError(
                 "Login blev afvist (401) mod caldav.icloud.com – tjek at Apple-id og "
@@ -198,12 +207,14 @@ class CalDAVRemindersClient:
                 principal = await self._discover_principal(client)
                 home = await self._discover_home(client, principal)
             except CalDAVError as exc:
+                logger.debug("CalDAV prepare attempt %s (%s) failed: %s", index + 1, username, exc)
                 if index < len(candidates) - 1 and _is_auth_rejection(exc):
                     continue
                 raise
             self._home = home
             self.resolved_username = username
             self.resolved_password = password
+            logger.info("CalDAV logged in as %s (home=%s)", username, home)
             return
 
     async def _discover_principal(self, client: httpx.AsyncClient) -> str:
@@ -215,7 +226,8 @@ class CalDAVRemindersClient:
         response = await self._request(
             client, "PROPFIND", self.base_url, body, depth="0"
         )
-        href_value = _find_text(response.content, _qname(DAV_NS, "current-user-principal"), _qname(DAV_NS, "href"))
+        href_value = _find_property_href(response.content, "current-user-principal")
+        logger.debug("CalDAV current-user-principal -> %r", href_value)
         if not href_value:
             raise CalDAVError("Could not discover iCloud CalDAV principal")
         return href_value
@@ -228,7 +240,8 @@ class CalDAVRemindersClient:
         )
         url = urljoin(self.base_url, principal_href)
         response = await self._request(client, "PROPFIND", url, body, depth="0")
-        href_value = _find_text(response.content, _qname(DAV_NS, "calendar-home-set"), _qname(DAV_NS, "href"))
+        href_value = _find_property_href(response.content, "calendar-home-set")
+        logger.debug("CalDAV calendar-home-set -> %r", href_value)
         if not href_value:
             raise CalDAVError("Could not discover iCloud calendar home")
         return href_value
@@ -333,6 +346,21 @@ def _apple_response_snippet(response: httpx.Response) -> str:
 def _is_auth_rejection(error: CalDAVError) -> bool:
     message = str(error)
     return "HTTP 401" in message or "Login blev afvist (401)" in message or "returned 401" in message
+
+
+def _find_property_href(xml: bytes, container: str) -> str:
+    """Findet href inde i det angivne DAV-property (ikke ressource-href)."""
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return ""
+    container_qname = _qname(DAV_NS, container)
+    href_qname = _qname(DAV_NS, "href")
+    for container_element in root.iter(container_qname):
+        for href in container_element.iter(href_qname):
+            if href.text:
+                return href.text.strip()
+    return ""
 
 
 def _find_text(xml: bytes, *path: str) -> str:

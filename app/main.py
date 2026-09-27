@@ -97,6 +97,24 @@ def payload_values(model: Any) -> dict[str, Any]:
     return model.dict(exclude_none=True)
 
 
+def apply_log_level(database: Database) -> None:
+    raw = (database.get_setting("log_level") or "").strip().lower()
+    level = getattr(logging, raw.upper(), None)
+    if not isinstance(level, int):
+        level = logging.WARNING
+    for name in (
+        "uvicorn",
+        "uvicorn.error",
+        "uvicorn.access",
+        "uvicorn.asgi",
+        "family-dashboard",
+        "app",
+        "httpx",
+        "httpcore",
+    ):
+        logging.getLogger(name).setLevel(level)
+
+
 def validate_url(value: str, allowed_schemes: tuple[str, ...]) -> str:
     parsed = urlparse(value)
     if parsed.scheme not in allowed_schemes or not parsed.netloc:
@@ -129,6 +147,7 @@ def require_auth(request: Request) -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    apply_log_level(database)
     stop_event = asyncio.Event()
     tasks: list[asyncio.Task] = []
 
@@ -581,6 +600,8 @@ async def update_settings_route(payload: SettingsUpdate) -> dict[str, Any]:
     for key in SECRET_SETTING_KEYS:
         if key in values and not values[key]:
             del values[key]
+    if "log_level" in values:
+        apply_log_level(database)
     return {"settings": public_settings(database.update_settings(values))}
 
 

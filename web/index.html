@@ -280,6 +280,15 @@
               <button class="button primary" type="submit">Gem kamera-indstillinger</button>
             </form>
           </article>
+          <article class="panel settings-card">
+            <div class="panel-heading"><div><p class="eyebrow">Diagnostik</p><h2>Logning</h2></div><span class="muted">Mest stille = mindst data på disken</span></div>
+            <form id="logging-form" class="stack-form">
+              <div class="form-row">
+                <div><label for="setting-log-level">Log-niveau</label><select id="setting-log-level" name="log_level"><option value="error">Fejl</option><option value="warning">Advarsler (anbefalet)</option><option value="info">Info</option><option value="debug">Debug (detaljeret)</option></select></div>
+              </div>
+              <button class="button primary" type="submit">Gem log-indstillinger</button>
+            </form>
+          </article>
           <article class="panel settings-card wide">
             <div class="panel-heading"><div><p class="eyebrow">Data</p><h2>Kalender- og widgetkilder</h2></div></div>
             <div class="settings-action-grid"><button class="button secondary" id="settings-add-calendar" type="button">Tilføj kalender</button><button class="button secondary" id="settings-add-school" type="button">Tilføj skoleskema</button><button class="button secondary" id="settings-add-birthday" type="button">Tilføj fødselsdag</button><button class="button secondary" id="settings-add-frame" type="button">Tilføj iframe</button><button class="button secondary" id="settings-add-note" type="button">Tilføj note</button><button class="button secondary" id="settings-add-camera" type="button">Tilføj kamera</button></div>
