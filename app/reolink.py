@@ -4,9 +4,10 @@ import asyncio
 import base64
 import hashlib
 import logging
+import shutil
 import time
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -28,9 +29,73 @@ DETECTION_LABELS = {
 DEFAULT_TIMEOUT = 8.0
 TOKEN_REFRESH_SECONDS = 600
 
+STREAM_BOUNDARY = "ffmpeg"
+STREAM_READ_SIZE = 65536
+
 
 class ReolinkError(RuntimeError):
     pass
+
+
+def is_streaming_url(value: str) -> bool:
+    return str(value or "").strip().lower().startswith(
+        ("rtsp://", "rtsps://", "rtmp://")
+    )
+
+
+def ffmpeg_mjpeg_args(url: str, height: int = 720, fps: int = 10, quality: int = 5) -> list[str]:
+    return [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-rtsp_transport", "tcp",
+        "-analyzeduration", "1000000",
+        "-probesize", "500000",
+        "-i", str(url),
+        "-an",
+        "-vf", f"scale=-2:{int(height)}",
+        "-r", str(fps),
+        "-q:v", str(quality),
+        "-f", "mpjpeg",
+        "pipe:1",
+    ]
+
+
+async def stream_camera_mjpeg(
+    camera_row: dict[str, Any],
+    *,
+    max_seconds: float = 120.0,
+    height: int = 720,
+    restart: bool = True,
+) -> AsyncIterator[bytes]:
+    rtsp = str(camera_row.get("live_stream_url") or "").strip()
+    if not is_streaming_url(rtsp):
+        raise ReolinkError(
+            "Kameraet har ingen gyldig live-stream-URL – brug fx "
+            "rtsp://brugernavn:kode@IP:554/h264Preview_01_main"
+        )
+    if shutil.which("ffmpeg") is None:
+        raise ReolinkError("ffmpeg er ikke installeret i containeren")
+    deadline = time.monotonic() + max(1.0, max_seconds)
+    while time.monotonic() < deadline:
+        process = await asyncio.create_subprocess_exec(
+            *ffmpeg_mjpeg_args(rtsp, height=height),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        try:
+            while True:
+                chunk = await process.stdout.read(STREAM_READ_SIZE)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            if process.returncode is None:
+                process.kill()
+            await process.wait()
+        if not restart:
+            break
+        await asyncio.sleep(1.0)
 
 
 _REOLINK_ERROR_CODES = {

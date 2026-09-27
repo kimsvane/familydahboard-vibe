@@ -1,22 +1,31 @@
 import asyncio
 import logging
 import os
+import shutil
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
-from typing import Any, Literal, Optional
+from typing import Any, AsyncIterator, Literal, Optional
 from urllib.parse import urlparse
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
 from .db import Database
 from .icloud_notes import ICloudNotes
 from .icloud_reminders import RemindersSync
-from .reolink import CameraMonitor, ReolinkCamera, ReolinkError, normalize_host
+from .reolink import (
+    STREAM_BOUNDARY,
+    CameraMonitor,
+    ReolinkCamera,
+    ReolinkError,
+    is_streaming_url,
+    normalize_host,
+    stream_camera_mjpeg,
+)
 from .schemas import (
     BirthdayCreate,
     BirthdayUpdate,
@@ -657,6 +666,42 @@ async def camera_snapshot(camera_id: int) -> Response:
     return Response(
         content=snapshot,
         media_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/api/cameras/{camera_id}/stream", dependencies=[Depends(require_auth)])
+async def camera_stream(
+    camera_id: int,
+    max_seconds: int = Query(default=60, ge=5, le=600),
+    height: int = Query(default=480, ge=160, le=1080),
+) -> StreamingResponse:
+    camera = database.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    rtsp = str(camera.get("live_stream_url") or "").strip()
+    if not is_streaming_url(rtsp):
+        raise HTTPException(
+            status_code=422,
+            detail="Kameraet har ingen RTSP-live-stream-URL – udfyld fx rtsp://brugernavn:kode@IP:554/h264Preview_01_main",
+        )
+    if shutil.which("ffmpeg") is None:
+        raise HTTPException(status_code=503, detail="ffmpeg er ikke installeret i containeren")
+
+    async def generator() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in stream_camera_mjpeg(
+                camera, max_seconds=float(max_seconds), height=height
+            ):
+                yield chunk
+        except ReolinkError as exc:
+            yield b"--" + STREAM_BOUNDARY.encode() + b"\r\nContent-Type: text/plain\r\n\r\n" + str(exc).encode("utf-8") + b"\r\n"
+        finally:
+            yield b"--" + STREAM_BOUNDARY.encode() + b"--\r\n"
+
+    return StreamingResponse(
+        generator(),
+        media_type=f"multipart/x-mixed-replace; boundary={STREAM_BOUNDARY}",
         headers={"Cache-Control": "no-store"},
     )
 

@@ -11,6 +11,8 @@ const state = {
   settings: {},
   cameras: [],
   cameraBroken: new Set(),
+  cameraLive: new Set(),
+  detectKey: null,
   reminderLists: [],
   icloudNote: null,
   cameraTimer: null,
@@ -481,7 +483,7 @@ function renderCameras() {
     $("#camera-activity-log").hidden = true;
     return;
   }
-  target.innerHTML = state.cameras.map((camera) => `<article class="panel camera-item"><div class="camera-header"><div class="camera-name"><strong>${escapeHtml(camera.name)}</strong><span>${escapeHtml(camera.host)}</span></div><div class="camera-actions"><button class="icon-button" data-test-camera="${camera.id}" type="button" aria-label="Test forbindelse" title="Test">↻</button><button class="icon-button" data-edit-camera="${camera.id}" type="button" aria-label="Rediger kamera" title="Rediger">✎</button><button class="icon-button" data-delete-camera="${camera.id}" type="button" aria-label="Slet kamera" title="Slet">×</button></div></div><div class="camera-snapshot" data-camera-snapshot-box>${camera.live_stream_url ? `<span class="camera-live">LIVE</span>` : ""}<img data-cam-img data-cam-id="${camera.id}" src="/api/cameras/${camera.id}/snapshot?t=${Date.now()}" alt="Snapshot fra ${escapeHtml(camera.name)}" loading="lazy"></div></article>`).join("");
+  target.innerHTML = state.cameras.map((camera) => `<article class="panel camera-item"><div class="camera-header"><div class="camera-name"><strong>${escapeHtml(camera.name)}</strong><span>${escapeHtml(camera.host)}</span></div><div class="camera-actions">${camera.live_stream_url ? `<button class="icon-button camera-live-btn" data-live-camera="${camera.id}" type="button" aria-label="Vis live-stream" title="Live-stream">▶</button>` : ""}<button class="icon-button" data-test-camera="${camera.id}" type="button" aria-label="Test forbindelse" title="Test">↻</button><button class="icon-button" data-edit-camera="${camera.id}" type="button" aria-label="Rediger kamera" title="Rediger">✎</button><button class="icon-button" data-delete-camera="${camera.id}" type="button" aria-label="Slet kamera" title="Slet">×</button></div></div><div class="camera-snapshot" data-camera-snapshot-box>${camera.live_stream_url ? `<span class="camera-live">LIVE</span>` : ""}<img data-cam-img data-cam-id="${camera.id}" src="/api/cameras/${camera.id}/snapshot?t=${Date.now()}" alt="Snapshot fra ${escapeHtml(camera.name)}" loading="lazy"></div></article>`).join("");
   $$("img[data-cam-img]", target).forEach((image) => {
     image.addEventListener("error", () => {
       const box = image.closest("[data-camera-snapshot-box]");
@@ -491,18 +493,46 @@ function renderCameras() {
       if (box && !overlay) {
         overlay = document.createElement("div");
         overlay.className = "camera-overlay";
-        overlay.textContent = "Kunne ikke hente snapshot – tjek port, protokol og adgangskode";
+        overlay.textContent = "Kunne ikke vise billede – tjek forbindelse, og at kameraet er online";
         box.append(overlay);
       }
     });
     image.addEventListener("load", () => state.cameraBroken.delete(String(image.dataset.camId)));
   });
+  updateLiveButtons();
+}
+
+function updateLiveButtons() {
+  $$("button[data-live-camera]").forEach((button) => {
+    const id = String(button.dataset.liveCamera);
+    button.classList.toggle("active", state.cameraLive.has(id));
+    button.textContent = state.cameraLive.has(id) ? "■" : "▶";
+    button.title = state.cameraLive.has(id) ? "Stop live-stream" : "Vis live-stream";
+  });
+}
+
+function toggleCameraLive(cameraId) {
+  const id = String(cameraId);
+  const image = document.querySelector(`img[data-cam-id="${id}"]`);
+  if (!image) return;
+  image.style.display = "";
+  image.closest("[data-camera-snapshot-box]")?.querySelector(".camera-overlay")?.remove();
+  state.cameraBroken.delete(id);
+  if (state.cameraLive.has(id)) {
+    state.cameraLive.delete(id);
+    image.src = `/api/cameras/${id}/snapshot?t=${Date.now()}`;
+  } else {
+    state.cameraLive.add(id);
+    image.src = `/api/cameras/${id}/stream?max_seconds=300&t=${Date.now()}`;
+  }
+  updateLiveButtons();
 }
 
 function refreshCameraSnapshots() {
   $$("#camera-grid img[data-cam-img]").forEach((image) => {
     const id = String(image.dataset.camId);
     if (state.cameraBroken.has(id)) return;
+    if (state.cameraLive.has(id)) return;
     image.src = `/api/cameras/${id}/snapshot?t=${Date.now()}`;
   });
 }
@@ -529,13 +559,21 @@ function handleDetections(activity) {
   if (!active.length) {
     popup.hidden = true;
     popup.innerHTML = "";
+    state.detectKey = null;
     return;
   }
+  const key = active.map((camera) => `${camera.id}:${camera.since}`).join("|");
+  if (state.detectKey !== key) {
+    state.detectKey = key;
+    popup.innerHTML = active.map((camera) => {
+      const types = (camera.types || []).map((item) => detectLabel(item.label || item.type)).join(" og ") || "Aktivitet";
+      const configured = state.cameras.find((item) => String(item.id) === String(camera.id));
+      const live = (configured?.live_stream_url || "").trim();
+      const src = live ? `/api/cameras/${camera.id}/stream?max_seconds=300&t=${Date.now()}` : `/api/cameras/${camera.id}/snapshot?t=${Date.now()}`;
+      return `<div class="detect-card"><div class="detect-head"><h2>${escapeHtml(camera.name)}</h2><span class="detect-types">${escapeHtml(types)}</span></div>${live ? `<span class="camera-live detect-live">LIVE</span>` : ""}<img src="${src}" alt="Kamerabillede"><div class="detect-foot"><span>Detekteret ${escapeHtml(formatTime(camera.since))}</span><span>Lukker automatisk</span></div></div>`;
+    }).join("");
+  }
   popup.hidden = false;
-  popup.innerHTML = active.map((camera) => {
-    const types = (camera.types || []).map((item) => detectLabel(item.label || item.type)).join(" og ") || "Aktivitet";
-    return `<div class="detect-card"><div class="detect-head"><h2>${escapeHtml(camera.name)}</h2><span class="detect-types">${escapeHtml(types)}</span></div><img src="/api/cameras/${camera.id}/snapshot?t=${Date.now()}" alt="Kamerabillede"><div class="detect-foot"><span>Detekteret ${escapeHtml(formatTime(camera.since))}</span><span>Lukker automatisk</span></div></div>`;
-  }).join("");
   const closeDelay = Number(activity.close_delay || 0);
   if (closeDelay > 0) state.detectTimer = window.setTimeout(() => { const root = $("#detect-popup"); root.hidden = true; }, closeDelay * 1000);
 }
@@ -593,7 +631,7 @@ function openCameraModal(camera = null) {
   const pieces = splitCameraHost(camera?.host);
   const protocol = `<label for="field-scheme">Protokol</label><select id="field-scheme" name="scheme"><option value="http" ${pieces.scheme !== "https" ? "selected" : ""}>HTTP</option><option value="https" ${pieces.scheme === "https" ? "selected" : ""}>HTTPS</option></select>`;
   const passwordExtra = camera ? " placeholder=\"Uændret hvis tomt\"" : "";
-  const body = `${field("Navn", "name", camera?.name || "", "text", "required maxlength=120")}${field("IP-adresse eller hostnavn", "host", pieces.host, "text", "required maxlength=250 placeholder='192.168.1.219'")}<div class="form-row"><div>${protocol}</div><div><label for="field-port">Web-port</label><input id="field-port" name="port" type="number" value="${escapeHtml(pieces.port)}" min="1" max="65535" step="1" required></div></div><p class="muted small-copy">Web-porten bruges til kameraets API (snapshots + AI-tilstand). Reolink-standarder: HTTP 80, HTTPS 443 – nyere NVR'er accepterer ofte kun HTTPS. Prøv HTTP 80 først, derefter 443. Kanal 0 er den første stream.</p>${field("Brugernavn", "username", camera?.username || "", "text", "maxlength=320")}${field("Password", "password", "", "password", `maxlength=200${passwordExtra}`)}${field("Kanal (0–31)", "channel", camera?.channel ?? 0, "number", "min=0 max=31 step=1")}${field("Live-stream URL (valgfrit)", "live_stream_url", camera?.live_stream_url || "", "url", "maxlength=2000 placeholder='http://194.239.32.5/live'")}<p class="muted small-copy">Live-streamen vises kun som et LIVE-mærke, hvis den kan afspilles i en browser – brug fx HLS (.m3u8) eller en HTTP-stream. <span class="error-text">RTSP (rtsp://…) afspilles ikke i browsere</span> og virker derfor ikke i dashboardet. Snapshots og AI-detektion kræver ikke en live-stream.</p><div class="form-row"><label class="check-label"><input type="checkbox" name="person_enabled" ${camera?.person_enabled !== false ? "checked" : ""}> Person-alarm</label><label class="check-label"><input type="checkbox" name="vehicle_enabled" ${camera?.vehicle_enabled !== false ? "checked" : ""}> Køretøj-alarm</label><label class="check-label"><input type="checkbox" name="snapshots_enabled" ${camera?.snapshots_enabled !== false ? "checked" : ""}> Snapshots</label></div>`;
+  const body = `${field("Navn", "name", camera?.name || "", "text", "required maxlength=120")}${field("IP-adresse eller hostnavn", "host", pieces.host, "text", "required maxlength=250 placeholder='192.168.1.219'")}<div class="form-row"><div>${protocol}</div><div><label for="field-port">Web-port</label><input id="field-port" name="port" type="number" value="${escapeHtml(pieces.port)}" min="1" max="65535" step="1" required></div></div><p class="muted small-copy">Web-porten bruges til kameraets API (snapshots + AI-tilstand). Reolink-standarder: HTTP 80, HTTPS 443 – nyere NVR'er accepterer ofte kun HTTPS. Prøv HTTP 80 først, derefter 443. Kanal 0 er den første stream.</p>${field("Brugernavn", "username", camera?.username || "", "text", "maxlength=320")}${field("Password", "password", "", "password", `maxlength=200${passwordExtra}`)}${field("Kanal (0–31)", "channel", camera?.channel ?? 0, "number", "min=0 max=31 step=1")}${field("Live-stream URL (RTSP)", "live_stream_url", camera?.live_stream_url || "", "text", "maxlength=2000 placeholder='rtsp://brugernavn:kode@192.168.1.174:554/h264Preview_01_main'")}<p class="muted small-copy">Live-streamen bruges til video i aktivitets-popuppen og i “▶” på kameraet. Dashboardet konverterer RTSP automatisk via ffmpeg, så det kan vises i browseren. Brug kameraets RTSP-adresse, fx <code>rtsp://brugernavn:kode@IP:554/h264Preview_01_main</code> (mainstream) eller <code>…/h264Preview_01_sub</code> (let sub-stream). Lad feltet stå tomt, hvis du ikke vil streame.</p><div class="form-row"><label class="check-label"><input type="checkbox" name="person_enabled" ${camera?.person_enabled !== false ? "checked" : ""}> Person-alarm</label><label class="check-label"><input type="checkbox" name="vehicle_enabled" ${camera?.vehicle_enabled !== false ? "checked" : ""}> Køretøj-alarm</label><label class="check-label"><input type="checkbox" name="snapshots_enabled" ${camera?.snapshots_enabled !== false ? "checked" : ""}> Snapshots</label></div>`;
   openModal(title, body, async (values) => {
     const payload = {
       name: values.name,
@@ -988,6 +1026,7 @@ function bindEvents() {
     if (target.dataset.editCamera) openCameraModal(state.cameras.find((camera) => String(camera.id) === String(target.dataset.editCamera)));
     if (target.dataset.deleteCamera) deleteCamera(target.dataset.deleteCamera);
     if (target.dataset.testCamera) testCamera(target.dataset.testCamera);
+    if (target.dataset.liveCamera) toggleCameraLive(target.dataset.liveCamera);
     if (target.dataset.editCheck) openChecklistItemModal(state.summary.checklist.find((item) => String(item.id) === String(target.dataset.editCheck)));
     if (target.dataset.deleteCheck) deleteChecklistItem(target.dataset.deleteCheck, state.summary.checklist.find((item) => String(item.id) === String(target.dataset.deleteCheck))?.source === "icloud");
   });

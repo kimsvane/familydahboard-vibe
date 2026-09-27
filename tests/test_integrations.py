@@ -1,7 +1,7 @@
 import asyncio
 import email
 from datetime import date, datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +18,14 @@ from app.icloud_reminders import (
     build_todo,
     parse_todo,
 )
-from app.reolink import CameraMonitor, ReolinkCamera, normalize_host
+from app.reolink import (
+    CameraMonitor,
+    ReolinkCamera,
+    ffmpeg_mjpeg_args,
+    is_streaming_url,
+    normalize_host,
+    stream_camera_mjpeg,
+)
 
 
 def utc_now() -> str:
@@ -651,3 +658,84 @@ def test_notes_icloud_routes_disabled_are_safe(tmp_path):
         main.database = old_database
         main.synchronizer.database = old_synchronizer_database
         main.icloud_notes = old_notes
+
+
+def test_icloud_caldav_username_candidates():
+    client = CalDAVRemindersClient("kim", "xxxx-xxxx-xxxx-xxxx")
+    assert client._username_candidates() == [
+        "kim",
+        "kim@icloud.com",
+        "kim@me.com",
+        "kim@mac.com",
+    ]
+    fully_qualified = CalDAVRemindersClient("kim@icloud.com", "x")
+    assert fully_qualified._username_candidates() == ["kim@icloud.com"]
+
+
+async def _prepare_with_retry():
+    client = CalDAVRemindersClient("kim", "xxxx-xxxx-xxxx-xxxx")
+    attempts = {"count": 0}
+
+    async def fake_principal(inner):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise CalDAVError("Login blev afvist (401) mod caldav.icloud.com – tjek…")
+        return "/principal/"
+
+    async def fake_home(inner, principal_href):
+        return "/calendar-home/"
+
+    with patch.object(client, "_discover_principal", side_effect=fake_principal), patch.object(
+        client, "_discover_home", side_effect=fake_home
+    ):
+        await client.prepare(AsyncMock())
+
+    assert attempts["count"] == 2
+    assert client.resolved_username == "kim@icloud.com"
+
+
+def test_prepare_retries_with_full_apple_id():
+    asyncio.run(_prepare_with_retry())
+
+
+def test_ffmpeg_mjpeg_args():
+    args = ffmpeg_mjpeg_args("rtsp://u:p@1.2.3.4:554/h264Preview_01_main", height=720)
+    assert args[0] == "ffmpeg"
+    assert "-rtsp_transport" in args
+    assert "mpjpeg" in args
+    assert args[args.index("-i") + 1] == "rtsp://u:p@1.2.3.4:554/h264Preview_01_main"
+    assert "h264Preview_01_main" in " ".join(args)
+
+
+def test_is_streaming_url():
+    assert is_streaming_url("rtsp://u:p@1.2.3.4:554/h264Preview_01_main")
+    assert not is_streaming_url("")
+    assert not is_streaming_url("http://1.2.3.4/live")
+
+
+def test_stream_camera_mjpeg_yields_and_kills():
+    class FakeProc:
+        def __init__(self) -> None:
+            self.returncode = None
+            self.stdout = AsyncMock()
+            self.stdout.read = AsyncMock(side_effect=[b"chunk-1", b""])
+            self.kill = Mock()
+            self.wait = AsyncMock(return_value=0)
+
+    async def collect():
+        with patch("app.reolink.shutil.which", return_value="/usr/bin/ffmpeg"), patch(
+            "app.reolink.asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)
+        ):
+            return [
+                chunk
+                async for chunk in stream_camera_mjpeg(
+                    {"live_stream_url": "rtsp://u:p@1.2.3.4:554/h264Preview_01_main"},
+                    max_seconds=30,
+                    restart=False,
+                )
+            ]
+
+    proc = FakeProc()
+    chunks = asyncio.run(collect())
+    assert chunks == [b"chunk-1"]
+    proc.kill.assert_called_once()

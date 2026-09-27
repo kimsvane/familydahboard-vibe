@@ -19,6 +19,13 @@ DAV_NS = "DAV:"
 CAL_NS = "urn:ietf:params:xml:ns:caldav"
 ICLOUD_CALDAV = "https://caldav.icloud.com/"
 
+ICLOUD_USER_AGENT = (
+    "DAVKit/4.0.1 (730); CalendarStore/4.0.1 (973); "
+    "iCal/4.0.1 (1374); Mac OS X/10.6.2 (10C540)"
+)
+
+APPLE_ID_DOMAINS = ("icloud.com", "me.com", "mac.com")
+
 _STATUS_OPEN = "NEEDS-ACTION"
 _STATUS_DONE = "COMPLETED"
 
@@ -109,9 +116,19 @@ class CalDAVRemindersClient:
         timeout: float = 15.0,
     ) -> None:
         self.base_url = base_url
+        self.username = username
+        self.password = app_password
         self.auth = (username, app_password)
         self.timeout = timeout
+        self.resolved_username: Optional[str] = None
         self._home: Optional[str] = None
+
+    def _username_candidates(self) -> list[str]:
+        candidates = [self.username]
+        if "@" not in self.username:
+            for domain in APPLE_ID_DOMAINS:
+                candidates.append(f"{self.username}@{domain}")
+        return candidates
 
     async def _request(
         self,
@@ -124,6 +141,7 @@ class CalDAVRemindersClient:
         accept: Optional[str] = None,
     ) -> httpx.Response:
         merged = dict(headers or {})
+        merged.setdefault("User-Agent", ICLOUD_USER_AGENT)
         if body is not None and "Content-Type" not in merged:
             merged["Content-Type"] = "application/xml; charset=UTF-8"
         if depth:
@@ -144,8 +162,12 @@ class CalDAVRemindersClient:
             )
         if response.status_code == 400:
             raise CalDAVError(
-                "iCloud afviste CalDAV-anmodningen (400/Client not certified) – prøv at "
-                "opdatere siden og hent listerne igen efter et minut."
+                f"iCloud afviste CalDAV-anmodningen (HTTP 400) – {_apple_response_snippet(response)}"
+            )
+        if response.status_code in (403, 429):
+            raise CalDAVError(
+                f"iCloud afviste CalDAV-anmodningen (HTTP {response.status_code}) – "
+                "prøv igen om et minut."
             )
         if response.status_code < 200 or response.status_code >= 300:
             raise CalDAVError(f"CalDAV {method} {url} returned {response.status_code}")
@@ -157,9 +179,19 @@ class CalDAVRemindersClient:
         return urljoin(self.base_url, self._home)
 
     async def prepare(self, client: httpx.AsyncClient) -> None:
-        principal = await self._discover_principal(client)
-        home = await self._discover_home(client, principal)
-        self._home = home
+        candidates = self._username_candidates()
+        for index, username in enumerate(candidates):
+            self.auth = (username, self.password)
+            try:
+                principal = await self._discover_principal(client)
+                home = await self._discover_home(client, principal)
+            except CalDAVError as exc:
+                if index < len(candidates) - 1 and _is_auth_rejection(exc):
+                    continue
+                raise
+            self._home = home
+            self.resolved_username = username
+            return
 
     async def _discover_principal(self, client: httpx.AsyncClient) -> str:
         body = (
@@ -277,6 +309,19 @@ def _href_basename(href: str) -> str:
     return href.rstrip("/").rsplit("/", 1)[-1]
 
 
+def _apple_response_snippet(response: httpx.Response) -> str:
+    text = " ".join((response.text or "").split()).strip()
+    if text:
+        prefix = text[:180]
+        return f"Apples svar: {prefix!r}"
+    return "Apples svar var tomt."
+
+
+def _is_auth_rejection(error: CalDAVError) -> bool:
+    message = str(error)
+    return "HTTP 401" in message or "Login blev afvist (401)" in message or "returned 401" in message
+
+
 def _find_text(xml: bytes, *path: str) -> str:
     try:
         root = ET.fromstring(xml)
@@ -378,6 +423,12 @@ class RemindersSync:
     def _list_href(self) -> str:
         return self.database.get_setting("reminders_list_href") or ""
 
+    def _remember_resolved(self, client: CalDAVRemindersClient) -> None:
+        resolved = client.resolved_username
+        current = self.database.get_setting("reminders_username") or ""
+        if resolved and resolved != current:
+            self.database.update_settings({"reminders_username": resolved})
+
     def _todo_url(self, uid: str) -> str:
         collection = urljoin(self._client().base_url, self._list_href())
         if not collection.endswith("/"):
@@ -389,7 +440,9 @@ class RemindersSync:
             async with httpx.AsyncClient() as client:
                 dav = self._client()
                 await dav.prepare(client)
-                return await dav.list_task_lists(client), None
+                lists = await dav.list_task_lists(client)
+                self._remember_resolved(dav)
+                return lists, None
         except (CalDAVError, httpx.HTTPError) as exc:
             logger.warning("Reminders discovery failed: %s", exc)
             return [], str(exc)
@@ -433,6 +486,7 @@ class RemindersSync:
                         "reminders_last_error": "",
                     }
                 )
+                self._remember_resolved(dav)
                 return {"synced": True, "count": len(tasks)}
             except (CalDAVError, httpx.HTTPError) as exc:
                 logger.warning("Reminders sync failed: %s", exc)
@@ -447,6 +501,7 @@ class RemindersSync:
                 dav = self._client()
                 await dav.prepare(client)
                 uid = await dav.create_todo(client, self._list_href(), text, due)
+                self._remember_resolved(dav)
             return self.database.upsert_icloud_checklist_item(
                 external_id=uid,
                 text=text,
@@ -476,6 +531,7 @@ class RemindersSync:
                     done,
                     due=due_date,
                 )
+                self._remember_resolved(dav)
         return self.database.upsert_icloud_checklist_item(
             external_id=item["external_id"],
             text=text,
@@ -490,4 +546,5 @@ class RemindersSync:
                 dav = self._client()
                 await dav.prepare(client)
                 await dav.delete_todo(client, self._todo_url(item["external_id"]))
+                self._remember_resolved(dav)
         self.database.delete_checklist_item(item["id"])
