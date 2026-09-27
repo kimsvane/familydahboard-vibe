@@ -14,6 +14,13 @@ Pakkerne findes som `.deb` og `.rpm` til `x64` og `arm64`. Dermed dækkes blandt
 
 Serveradressen gemmes lokalt i `~/.config/family-dashboard-kiosk/client.json`. Der gemmes ingen adgangskode på enheden.
 
+## Hent pakkerne
+
+Færdigbyggede pakker ligger som filer under **Releases** i repoet:
+https://github.com/kimsvane/familydahboard-vibe/releases/latest
+
+Her kan du downloade `.rpm` og `.deb` direkte i browseren uden zip eller GitHub-login.
+
 ## Installér
 
 ### Fedora, RHEL, Rocky Linux og andre RPM-systemer

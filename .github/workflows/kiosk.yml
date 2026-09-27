@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
     paths:
       - "clients/linux/**"
       - ".github/workflows/kiosk.yml"
@@ -57,3 +59,35 @@ jobs:
             clients/linux/dist/*.rpm
           if-no-files-found: error
           retention-days: 30
+
+  release:
+    name: Create release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - name: List packages
+        run: ls -la packages
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Family Dashboard Kiosk ${{ github.ref_name }}
+          body: |
+            Dedikeret kiosk-klient til Family Dashboard.
+
+            - `.deb` til Debian/Ubuntu
+            - `.rpm` til Fedora/RHEL
+            - `x86_64` til Surface Pro 4 og andre x64-pc'er
+            - `arm64` til Raspberry Pi og andre 64-bit ARM-enheder
+
+            Se `clients/linux/README.md` for installation og første opsætning.
+          files: |
+            packages/*.deb
+            packages/*.rpm
