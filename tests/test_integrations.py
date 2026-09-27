@@ -400,7 +400,14 @@ def test_notes_fetch_save_disabled_are_safe(tmp_path):
     database = Database(tmp_path / "notes-disabled.db")
     notes = ICloudNotes(database)
     result = asyncio.run(notes.fetch())
-    assert result == {"enabled": False, "title": "", "content": "", "error": "disabled"}
+    assert result == {
+        "enabled": False,
+        "title": "",
+        "content": "",
+        "error": "disabled",
+        "configured": False,
+        "last_error": "",
+    }
     saved = asyncio.run(notes.save("Hej"))
     assert saved == {"saved": False, "error": "disabled"}
 

@@ -270,15 +270,18 @@ function renderIcloudNote() {
   const card = $("#icloud-note-card");
   const configured = state.settings.notes_imap_configured;
   const note = state.icloudNote;
-  card.hidden = !(configured && note?.enabled);
-  if (card.hidden) return;
-  $("#icloud-note-title").textContent = note.title || $("#setting-notes-title").value || "iCloud-note";
-  if (note.error && note.error !== "disabled") {
-    $("#today-icloud-note").innerHTML = `<p class="muted small-copy">${escapeHtml(note.error)}</p>`;
+  card.hidden = !configured;
+  if (!configured) return;
+  $("#icloud-note-title").textContent = (note?.title || "") || $("#setting-notes-title").value || "iCloud-note";
+  const body = $("#today-icloud-note");
+  if (note?.error && note.error !== "disabled") {
+    body.innerHTML = `<p class="muted small-copy">${escapeHtml(note.error)}</p><p class="muted small-copy">Tjek Apple-id/app-specifikt password under <a href="#" data-view-link="settings" class="text-button">Indstillinger</a>.</p>`;
+  } else if (!note?.enabled) {
+    body.innerHTML = `<p class="muted small-copy">iCloud-note er gemt, men visningen er slået fra – marker “Aktivér visning af note” under <a href="#" data-view-link="settings" class="text-button">Indstillinger</a> og gem igen.</p>`;
   } else if (note.content) {
-    $("#today-icloud-note").innerHTML = `<p>${escapeHtml(note.content)}</p>`;
+    body.innerHTML = `<p>${escapeHtml(note.content)}</p>`;
   } else {
-    $("#today-icloud-note").innerHTML = `<p class="muted small-copy">Noten er tom eller blev ikke fundet endnu.</p>`;
+    body.innerHTML = `<p class="muted small-copy">Noten er tom eller blev ikke fundet endnu.</p>`;
   }
 }
 
@@ -345,6 +348,9 @@ function renderSettings(summary) {
   remindersBadge.classList.toggle("ok", !!settings.reminders_configured);
   remindersBadge.classList.toggle("error", !settings.reminders_configured);
   if (settings.reminders_configured && !settings.reminders_list_href) remindersBadge.textContent = "Manglende liste";
+  if (settings.reminders_last_error) {
+    $("#reminders-help").innerHTML = `Sidste fejl: <span class="error-text">${escapeHtml(settings.reminders_last_error)}</span><br>Brug et app-specifikt password oprettet på appleid.apple.com (kræver to-faktor-login) og kopiér det præcist, uden mellemrum.`;
+  }
   const notesForm = $("#icloud-notes-form");
   notesForm.elements.notes_imap_enabled.checked = settings.notes_imap_enabled === true || settings.notes_imap_enabled === "true";
   notesForm.elements.notes_imap_username.value = settings.notes_imap_username || "";
@@ -354,6 +360,9 @@ function renderSettings(summary) {
   notesBadge.textContent = settings.notes_imap_configured ? "Aktiv" : "Ikke konfigureret";
   notesBadge.classList.toggle("ok", !!settings.notes_imap_configured);
   notesBadge.classList.toggle("error", !settings.notes_imap_configured);
+  if (settings.notes_imap_last_error) {
+    $("#notes-help").innerHTML = `Sidste fejl: <span class="error-text">${escapeHtml(settings.notes_imap_last_error)}</span>`;
+  }
   const reolinkForm = $("#reolink-form");
   reolinkForm.elements.reolink_poll_seconds.value = settings.reolink_poll_seconds || 5;
   reolinkForm.elements.reolink_close_delay.value = settings.reolink_close_delay ?? 0;
@@ -566,14 +575,27 @@ async function deleteCamera(cameraId) {
   }
 }
 
+function splitCameraHost(url) {
+  try {
+    const parsed = new URL(url);
+    const scheme = parsed.protocol.replace(":", "") || "http";
+    const port = parsed.port ? Number(parsed.port) : (scheme === "https" ? 443 : 80);
+    return { scheme, host: parsed.hostname, port };
+  } catch {
+    return { scheme: "http", host: url || "", port: 80 };
+  }
+}
+
 function openCameraModal(camera = null) {
   const title = camera ? "Rediger kamera" : "Tilføj kamera";
-  const passwordField = camera ? " placeholder=\"Uændret hvis tomt\"" : "";
-  const body = `${field("Navn", "name", camera?.name || "", "text", "required maxlength=120")}${field("Adresse", "host", camera?.host || "", "text", "required maxlength=500 placeholder='http://192.168.1.100'")}${field("Brugernavn", "username", camera?.username || "", "text", "maxlength=320")}${field("Password", "password", "", "password", `maxlength=200${passwordField}`)}<div class="form-row"><div><label for="field-channel">Kanal</label><input id="field-channel" name="channel" type="number" value="${escapeHtml(camera?.channel ?? 0)}" min="0" max="31" step="1"></div><div><label for="field-live-stream-url">Live-stream URL (valgfrit)</label><input id="field-live-stream-url" name="live_stream_url" type="url" value="${escapeHtml(camera?.live_stream_url || "")}" maxlength="2000"></div></div><div class="form-row"><label class="check-label"><input type="checkbox" name="person_enabled" ${camera?.person_enabled !== false ? "checked" : ""}> Person-alarm</label><label class="check-label"><input type="checkbox" name="vehicle_enabled" ${camera?.vehicle_enabled !== false ? "checked" : ""}> Køretøj-alarm</label><label class="check-label"><input type="checkbox" name="snapshots_enabled" ${camera?.snapshots_enabled !== false ? "checked" : ""}> Snapshots</label></div>`;
+  const pieces = splitCameraHost(camera?.host);
+  const protocol = `<label for="field-scheme">Protokol</label><select id="field-scheme" name="scheme"><option value="http" ${pieces.scheme !== "https" ? "selected" : ""}>HTTP</option><option value="https" ${pieces.scheme === "https" ? "selected" : ""}>HTTPS</option></select>`;
+  const passwordExtra = camera ? " placeholder=\"Uændret hvis tomt\"" : "";
+  const body = `${field("Navn", "name", camera?.name || "", "text", "required maxlength=120")}${field("IP-adresse eller hostnavn", "host", pieces.host, "text", "required maxlength=250 placeholder='192.168.1.219'")}<div class="form-row"><div>${protocol}</div><div><label for="field-port">Web-port</label><input id="field-port" name="port" type="number" value="${escapeHtml(pieces.port)}" min="1" max="65535" step="1" required></div></div><p class="muted small-copy">Web-porten bruges til kameraets API-snapshots og AI-tilstand – typisk 80 på IP-kameraer og 80/8443 på en NVR. Kanal 0 er den første stream.</p>${field("Brugernavn", "username", camera?.username || "", "text", "maxlength=320")}${field("Password", "password", "", "password", `maxlength=200${passwordExtra}`)}${field("Kanal (0–31)", "channel", camera?.channel ?? 0, "number", "min=0 max=31 step=1")}${field("Live-stream URL (valgfrit)", "live_stream_url", camera?.live_stream_url || "", "url", "maxlength=2000 placeholder='http://194.239.32.5/live'")}<p class="muted small-copy">Live-streamen vises kun som et LIVE-mærke, hvis den kan afspilles i en browser – brug fx HLS (.m3u8) eller en HTTP-stream. <span class="error-text">RTSP (rtsp://…) afspilles ikke i browsere</span> og virker derfor ikke i dashboardet. Snapshots og AI-detektion kræver ikke en live-stream.</p><div class="form-row"><label class="check-label"><input type="checkbox" name="person_enabled" ${camera?.person_enabled !== false ? "checked" : ""}> Person-alarm</label><label class="check-label"><input type="checkbox" name="vehicle_enabled" ${camera?.vehicle_enabled !== false ? "checked" : ""}> Køretøj-alarm</label><label class="check-label"><input type="checkbox" name="snapshots_enabled" ${camera?.snapshots_enabled !== false ? "checked" : ""}> Snapshots</label></div>`;
   openModal(title, body, async (values) => {
     const payload = {
       name: values.name,
-      host: values.host,
+      host: `${values.scheme}://${values.host.trim()}:${Number(values.port) || (values.scheme === "https" ? 443 : 80)}`,
       username: (values.username || "").trim(),
       password: values.password || "",
       channel: Number(values.channel || 0),
@@ -858,14 +880,26 @@ function bindEvents() {
   });
   $("#reminders-fetch-lists").addEventListener("click", async () => {
     const button = $("#reminders-fetch-lists");
+    const help = $("#reminders-help");
     button.disabled = true;
     try {
       const result = await api("/api/reminders/lists");
-      if (result.error) showToast(`Kunne ikke hente lister: ${result.error}`, true);
-      state.reminderLists = result.lists || [];
+      if (result.error) {
+        help.innerHTML = `Fejl: <span class="error-text">${escapeHtml(result.error)}</span><br>Tjek Apple-id og app-specifikt password (oprettet på appleid.apple.com med to-faktor-login slået til), og kopiér passwordet præcist uden mellemrum.`;
+        showToast(`Kunne ikke hente lister: ${result.error}`, true);
+        state.reminderLists = [];
+      } else {
+        state.reminderLists = result.lists || [];
+        help.textContent = state.reminderLists.length ? `${state.reminderLists.length} påmindelseslister fundet – vælg en og gem.` : "Ingen påmindelseslister fundet på kontoen.";
+        showToast(state.reminderLists.length ? `${state.reminderLists.length} lister fundet` : "Ingen lister fundet", !state.reminderLists.length);
+      }
       populateReminderListSelect(state.settings.reminders_list_href, state.settings.reminders_list_name);
-      showToast(state.reminderLists.length ? `${state.reminderLists.length} lister fundet` : "Ingen lister fundet", !state.reminderLists.length);
-    } catch (error) { showToast(error.message, true); } finally { button.disabled = false; }
+    } catch (error) {
+      help.innerHTML = `Fejl: <span class="error-text">${escapeHtml(error.message)}</span>`;
+      showToast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
   });
   $("#reminders-sync-now").addEventListener("click", async () => {
     try {
@@ -879,12 +913,27 @@ function bindEvents() {
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
     if (!values.notes_imap_app_password) delete values.notes_imap_app_password;
     values.notes_imap_enabled = values.notes_imap_enabled === "on";
-    try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); await loadIcloudNote(); showToast("Note-indstillinger gemt"); } catch (error) { showToast(error.message, true); }
+    try {
+      await api("/api/settings", { method: "PATCH", body: values });
+      await loadSummary(true);
+      await loadIcloudNote();
+      const note = state.icloudNote;
+      if (note?.error && note.error !== "disabled") $("#notes-help").innerHTML = `Sidste fejl: <span class="error-text">${escapeHtml(note.error)}</span>`;
+      showToast(note?.error && note.error !== "disabled" ? "Indstillinger gemt – men noten kunne ikke hentes" : "Note-indstillinger gemt");
+    } catch (error) { showToast(error.message, true); }
   });
   $("#notes-fetch-now").addEventListener("click", async () => {
     try {
       await loadIcloudNote(false);
-      showToast(state.icloudNote?.content ? "Noten er hentet" : "Noten er tom eller ikke fundet", !state.icloudNote?.content);
+      const note = state.icloudNote;
+      if (note?.error && note.error !== "disabled") {
+        $("#notes-help").innerHTML = `Sidste fejl: <span class="error-text">${escapeHtml(note.error)}</span>`;
+        showToast(note.error, true);
+      } else if (note?.content) {
+        showToast("Noten er hentet");
+      } else {
+        showToast("Noten er tom eller ikke fundet", true);
+      }
     } catch (error) { showToast(error.message, true); }
   });
   $("#reolink-form").addEventListener("submit", async (event) => {
@@ -922,8 +971,9 @@ function bindEvents() {
   $("#school-today").addEventListener("click", () => { state.schoolWeekStart = startOfWeek(new Date()); loadSchoolEvents(); });
   $("#calendar-grid").addEventListener("click", (event) => { const day = event.target.closest("[data-date]"); if (day) { state.selectedDate = parseDateKey(day.dataset.date); renderCalendar(); } });
   document.addEventListener("click", async (event) => {
-    const target = event.target.closest("button");
+    const target = event.target.closest("button, [data-view-link]");
     if (!target) return;
+    if (target.dataset.viewLink) { showView(target.dataset.viewLink); return; }
     if (target.dataset.editSource) openCalendarModal(findResource("source", target.dataset.editSource));
     if (target.dataset.deleteSource) deleteResource(`/api/calendars/${target.dataset.deleteSource}`, " Vil du fjerne denne kalender?");
     if (target.dataset.syncSource) synchroniseSingle(target.dataset.syncSource);

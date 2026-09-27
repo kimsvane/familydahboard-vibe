@@ -189,7 +189,14 @@ class ICloudNotes:
 
     async def fetch(self) -> dict[str, Any]:
         if not self.enabled():
-            return {"enabled": False, "title": "", "content": "", "error": "disabled"}
+            return {
+                "enabled": False,
+                "title": "",
+                "content": "",
+                "error": "disabled",
+                "configured": self.configured(),
+                "last_error": self.database.get_setting("notes_imap_last_error") or "",
+            }
         try:
             result = await asyncio.to_thread(self._fetch_sync)
             self.database.update_settings(

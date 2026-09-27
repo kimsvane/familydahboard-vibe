@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 DAV_NS = "DAV:"
 CAL_NS = "urn:ietf:params:xml:ns:caldav"
 ICLOUD_CALDAV = "https://caldav.icloud.com/"
+_DAV_USER_AGENT = "AppleDAV/1.0 (Macintosh; Intel Mac OS X 10_15_7) AppSpecific-Password"
 
 _STATUS_OPEN = "NEEDS-ACTION"
 _STATUS_DONE = "COMPLETED"
@@ -126,6 +127,7 @@ class CalDAVRemindersClient:
         merged = dict(headers or {})
         if body is not None and "Content-Type" not in merged:
             merged["Content-Type"] = "application/xml; charset=UTF-8"
+        merged.setdefault("User-Agent", _DAV_USER_AGENT)
         if depth:
             merged["Depth"] = depth
         if accept:
@@ -136,6 +138,12 @@ class CalDAVRemindersClient:
             )
         except httpx.HTTPError as exc:
             raise CalDAVError(f"CalDAV request failed: {exc}") from exc
+        if response.status_code == 401:
+            raise CalDAVError(
+                "Login blev afvist (401) mod caldav.icloud.com – tjek at Apple-id og "
+                "app-specifikt password er korrekte (to-faktor-login skal være slået til "
+                "på appleid.apple.com), og at passwordet kopieres præcist uden mellemrum."
+            )
         if response.status_code < 200 or response.status_code >= 300:
             raise CalDAVError(f"CalDAV {method} {url} returned {response.status_code}")
         return response
