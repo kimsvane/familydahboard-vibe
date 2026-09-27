@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "description": "Fuldskærmsklient til Family Dashboard på en dedikeret Linux-enhed",
+  "homepage": "https://github.com/kimsvane/familydahboard-vibe",
   "author": {
-    "name": "Kim"
+    "name": "Kim",
+    "email": "kimsvane@users.noreply.github.com"
   },
   "main": "src/main.js",
   "engines": {
@@ -38,20 +40,8 @@
     },
     "linux": {
       "target": [
-        {
-          "target": "deb",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "rpm",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
+        "deb",
+        "rpm"
       ],
       "category": "Utility",
       "synopsis": "Dedikeret fuldskærmsklient til Family Dashboard",

@@ -19,15 +19,15 @@ Serveradressen gemmes lokalt i `~/.config/family-dashboard-kiosk/client.json`. D
 ### Fedora, RHEL, Rocky Linux og andre RPM-systemer
 
 ```sh
-sudo dnf install ./family-dashboard-kiosk-0.1.0-x64.rpm
+sudo dnf install ./family-dashboard-kiosk-0.1.0-x86_64.rpm
 ```
 
-På ARM skal du bruge `family-dashboard-kiosk-0.1.0-arm64.rpm`.
+På ARM skal du bruge `family-dashboard-kiosk-0.1.0-aarch64.rpm`.
 
 ### Debian, Ubuntu, Mint og lignende
 
 ```sh
-sudo apt install ./family-dashboard-kiosk-0.1.0-x64.deb
+sudo apt install ./family-dashboard-kiosk-0.1.0-amd64.deb
 ```
 
 På ARM skal du bruge `family-dashboard-kiosk-0.1.0-arm64.deb`.
@@ -57,7 +57,7 @@ For at skærmen skal vise dashboardet direkte efter en strømcyklus skal den ded
 Byg en ny pakke og installér den over den eksisterende:
 
 ```sh
-sudo dnf install ./family-dashboard-kiosk-0.1.0-x64.rpm
+sudo dnf install ./family-dashboard-kiosk-0.1.0-x86_64.rpm
 ```
 
 Serverens kalendere og øvrige data ligger kun på TrueNAS. En opdatering eller geninstallation af kiosk-appen sletter dem ikke.
