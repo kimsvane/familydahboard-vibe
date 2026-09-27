@@ -278,6 +278,8 @@ function renderIcloudNote() {
     body.innerHTML = `<p class="muted small-copy">${escapeHtml(note.error)}</p><p class="muted small-copy">Tjek Apple-id/app-specifikt password under <a href="#" data-view-link="settings" class="text-button">Indstillinger</a>.</p>`;
   } else if (!note?.enabled) {
     body.innerHTML = `<p class="muted small-copy">iCloud-note er gemt, men visningen er slået fra – marker “Aktivér visning af note” under <a href="#" data-view-link="settings" class="text-button">Indstillinger</a> og gem igen.</p>`;
+  } else if (note?.found === false) {
+    body.innerHTML = `<p class="muted small-copy">Noten <strong>“${escapeHtml(note.title || $("#setting-notes-title").value || "")}”</strong> blev ikke fundet i iCloud. Tjek at titlen i “Note-titel”-feltet staver præcist som i Notes-appen – kun en note med nøjagtig samme titel vises.</p>`;
   } else if (note.content) {
     body.innerHTML = `<p>${escapeHtml(note.content)}</p>`;
   } else {
@@ -489,7 +491,7 @@ function renderCameras() {
       if (box && !overlay) {
         overlay = document.createElement("div");
         overlay.className = "camera-overlay";
-        overlay.textContent = "Ingen forbindelse";
+        overlay.textContent = "Kunne ikke hente snapshot – tjek port, protokol og adgangskode";
         box.append(overlay);
       }
     });
@@ -591,7 +593,7 @@ function openCameraModal(camera = null) {
   const pieces = splitCameraHost(camera?.host);
   const protocol = `<label for="field-scheme">Protokol</label><select id="field-scheme" name="scheme"><option value="http" ${pieces.scheme !== "https" ? "selected" : ""}>HTTP</option><option value="https" ${pieces.scheme === "https" ? "selected" : ""}>HTTPS</option></select>`;
   const passwordExtra = camera ? " placeholder=\"Uændret hvis tomt\"" : "";
-  const body = `${field("Navn", "name", camera?.name || "", "text", "required maxlength=120")}${field("IP-adresse eller hostnavn", "host", pieces.host, "text", "required maxlength=250 placeholder='192.168.1.219'")}<div class="form-row"><div>${protocol}</div><div><label for="field-port">Web-port</label><input id="field-port" name="port" type="number" value="${escapeHtml(pieces.port)}" min="1" max="65535" step="1" required></div></div><p class="muted small-copy">Web-porten bruges til kameraets API-snapshots og AI-tilstand – typisk 80 på IP-kameraer og 80/8443 på en NVR. Kanal 0 er den første stream.</p>${field("Brugernavn", "username", camera?.username || "", "text", "maxlength=320")}${field("Password", "password", "", "password", `maxlength=200${passwordExtra}`)}${field("Kanal (0–31)", "channel", camera?.channel ?? 0, "number", "min=0 max=31 step=1")}${field("Live-stream URL (valgfrit)", "live_stream_url", camera?.live_stream_url || "", "url", "maxlength=2000 placeholder='http://194.239.32.5/live'")}<p class="muted small-copy">Live-streamen vises kun som et LIVE-mærke, hvis den kan afspilles i en browser – brug fx HLS (.m3u8) eller en HTTP-stream. <span class="error-text">RTSP (rtsp://…) afspilles ikke i browsere</span> og virker derfor ikke i dashboardet. Snapshots og AI-detektion kræver ikke en live-stream.</p><div class="form-row"><label class="check-label"><input type="checkbox" name="person_enabled" ${camera?.person_enabled !== false ? "checked" : ""}> Person-alarm</label><label class="check-label"><input type="checkbox" name="vehicle_enabled" ${camera?.vehicle_enabled !== false ? "checked" : ""}> Køretøj-alarm</label><label class="check-label"><input type="checkbox" name="snapshots_enabled" ${camera?.snapshots_enabled !== false ? "checked" : ""}> Snapshots</label></div>`;
+  const body = `${field("Navn", "name", camera?.name || "", "text", "required maxlength=120")}${field("IP-adresse eller hostnavn", "host", pieces.host, "text", "required maxlength=250 placeholder='192.168.1.219'")}<div class="form-row"><div>${protocol}</div><div><label for="field-port">Web-port</label><input id="field-port" name="port" type="number" value="${escapeHtml(pieces.port)}" min="1" max="65535" step="1" required></div></div><p class="muted small-copy">Web-porten bruges til kameraets API (snapshots + AI-tilstand). Reolink-standarder: HTTP 80, HTTPS 443 – nyere NVR'er accepterer ofte kun HTTPS. Prøv HTTP 80 først, derefter 443. Kanal 0 er den første stream.</p>${field("Brugernavn", "username", camera?.username || "", "text", "maxlength=320")}${field("Password", "password", "", "password", `maxlength=200${passwordExtra}`)}${field("Kanal (0–31)", "channel", camera?.channel ?? 0, "number", "min=0 max=31 step=1")}${field("Live-stream URL (valgfrit)", "live_stream_url", camera?.live_stream_url || "", "url", "maxlength=2000 placeholder='http://194.239.32.5/live'")}<p class="muted small-copy">Live-streamen vises kun som et LIVE-mærke, hvis den kan afspilles i en browser – brug fx HLS (.m3u8) eller en HTTP-stream. <span class="error-text">RTSP (rtsp://…) afspilles ikke i browsere</span> og virker derfor ikke i dashboardet. Snapshots og AI-detektion kræver ikke en live-stream.</p><div class="form-row"><label class="check-label"><input type="checkbox" name="person_enabled" ${camera?.person_enabled !== false ? "checked" : ""}> Person-alarm</label><label class="check-label"><input type="checkbox" name="vehicle_enabled" ${camera?.vehicle_enabled !== false ? "checked" : ""}> Køretøj-alarm</label><label class="check-label"><input type="checkbox" name="snapshots_enabled" ${camera?.snapshots_enabled !== false ? "checked" : ""}> Snapshots</label></div>`;
   openModal(title, body, async (values) => {
     const payload = {
       name: values.name,
@@ -904,7 +906,7 @@ function bindEvents() {
   $("#reminders-sync-now").addEventListener("click", async () => {
     try {
       const result = await api("/api/reminders/sync", { method: "POST" });
-      showToast(result.ok ? "Checklisten er synkroniseret" : `Synk fejlede: ${result.error || "ukendt fejl"}`, !result.ok);
+      showToast(result.synced ? `Checklisten er synkroniseret (${result.count || 0} opgaver)` : (result.reason === "disabled" ? "Synk deaktiveret – fyld Apple-id, password og vælg en liste under Indstillinger" : `Synk fejlede: ${result.error || "ukendt fejl"}`), !result.synced);
       await loadSummary(true);
     } catch (error) { showToast(error.message, true); }
   });

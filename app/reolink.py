@@ -33,6 +33,16 @@ class ReolinkError(RuntimeError):
     pass
 
 
+_REOLINK_ERROR_CODES = {
+    1: "ugyldige parametre",
+    2: "forkert brugernavn eller adgangskode",
+    12: "ingen adgang",
+    13: "ingen adgang / ikke logget ind",
+    19: "ny adgangskodekrævet",
+    25: "konto blokeret",
+}
+
+
 def normalize_host(host: str) -> str:
     value = host.strip().rstrip("/")
     if "://" not in value:
@@ -76,7 +86,10 @@ class ReolinkCamera:
             raise ReolinkError("Kameraet returnerede en tom respons")
         code = body[0].get("code")
         if code not in (0, None):
-            raise ReolinkError(f"Kameraet afviste forespørgslen (code={code})")
+            meaning = _REOLINK_ERROR_CODES.get(
+                int(code), "ukendt fejl"
+            )
+            raise ReolinkError(f"Kameraet afviste forespørgslen (code={code} – {meaning})")
         return body
 
     async def _ensure_token(self, client: httpx.AsyncClient) -> str:

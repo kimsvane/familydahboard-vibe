@@ -137,7 +137,7 @@ class ICloudNotes:
             raise NotesError("Login mislykkedes – kontrollér Apple ID og app-specifikt password") from exc
         return connection
 
-    def _notes_folder(self, connection: imaplib.IMAP4_SSL) -> str:
+    def _notes_folders(self, connection: imaplib.IMAP4_SSL) -> list[str]:
         typ, data = connection.list()
         if typ != "OK":
             raise NotesError("Kunne ikke liste IMAP-mapper")
@@ -153,9 +153,11 @@ class ICloudNotes:
         ]
         if not notes:
             raise NotesError("IMAP Notes-mappen blev ikke fundet i din iCloud-konto")
-        return notes[0]
+        return notes
 
-    def _find_note(self, connection: imaplib.IMAP4_SSL, folder: str, title: str) -> Optional[str]:
+    def _find_note_in_folder(
+        self, connection: imaplib.IMAP4_SSL, folder: str, title: str
+    ) -> Optional[str]:
         typ, _ = connection.select(folder)
         if typ != "OK":
             raise NotesError("Kunne ikke åbne Notes-mappen")
@@ -185,6 +187,15 @@ class ICloudNotes:
             subject = str(message.get("subject") or "")
             if subject == title or subject.casefold() == title.casefold():
                 return match.group(1).decode()
+        return None
+
+    def _find_note(
+        self, connection: imaplib.IMAP4_SSL, folders: list[str], title: str
+    ) -> Optional[tuple[str, str]]:
+        for folder in folders:
+            uid = self._find_note_in_folder(connection, folder, title)
+            if uid is not None:
+                return folder, uid
         return None
 
     async def fetch(self) -> dict[str, Any]:
@@ -230,9 +241,9 @@ class ICloudNotes:
         title = self.database.get_setting("notes_imap_note_title") or ""
         connection = self._connect()
         try:
-            folder = self._notes_folder(connection)
-            uid = self._find_note(connection, folder, title)
-            if uid is None:
+            folders = self._notes_folders(connection)
+            found = self._find_note(connection, folders, title)
+            if found is None:
                 return {
                     "enabled": True,
                     "configured": True,
@@ -242,7 +253,8 @@ class ICloudNotes:
                     "error": "",
                     "fetched_at": _utc_now(),
                 }
-            typ, data = connection.uid("fetch", uid, "(UID BODY.PEEK[])")
+            _, found_uid = found
+            typ, data = connection.uid("fetch", found_uid, "(UID BODY.PEEK[])")
             if typ != "OK" or not data:
                 raise NotesError("Kunne ikke læse note-indholdet")
             message = email.message_from_bytes(_joined_payload(data))
@@ -285,12 +297,13 @@ class ICloudNotes:
         username = settings.get("notes_imap_username") or ""
         connection = self._connect()
         try:
-            folder = self._notes_folder(connection)
-            uid = self._find_note(connection, folder, title)
-            if uid is None:
+            folders = self._notes_folders(connection)
+            found = self._find_note(connection, folders, title)
+            if found is None:
                 raise NotesError(
                     "Noten blev ikke fundet i iCloud. Kun opdatering af en eksisterende note understøttes."
                 )
+            folder, uid = found
             typ, _ = connection.select(folder)
             if typ != "OK":
                 raise NotesError("Kunne ikke åbne Notes-mappen")
