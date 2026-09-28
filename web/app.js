@@ -143,6 +143,19 @@ function showApp() {
   state.refreshTimer = window.setInterval(() => loadSummary(true), 60000);
   loadCameras(true);
   if (state.settings.notes_imap_configured) loadIcloudNote(true);
+  measureChrome();
+  window.addEventListener("resize", measureChrome);
+  if (window.ResizeObserver) new ResizeObserver(measureChrome).observe(document.querySelector(".topbar"));
+}
+
+/// Topbar og navigation er sticky, så oversigten skal trække deres højde fra
+/// skærmhøjeden for at kunne fylde resten uden at siden kommer til at scrolle.
+function measureChrome() {
+  const topbar = document.querySelector(".topbar");
+  const nav = document.querySelector(".main-nav");
+  if (!topbar || !nav) return;
+  const height = Math.round(topbar.getBoundingClientRect().height + nav.getBoundingClientRect().height);
+  document.documentElement.style.setProperty("--chrome-height", `${height}px`);
 }
 
 function updateClock() {
@@ -185,7 +198,6 @@ function renderSummary() {
   renderBirthdayPreview(summary.birthdays || []);
   renderMembers(summary.members || []);
   renderChecklist(summary.checklist || []);
-  renderNotes(summary.notes || []);
   renderBirthdayGrid(summary.birthdays || []);
   renderSources(summary.sources || []);
   renderFrames(summary.frames || []);
@@ -290,11 +302,6 @@ function renderIcloudNote() {
   } else {
     body.innerHTML = `<p class="muted small-copy">Noten er tom eller blev ikke fundet endnu.</p>`;
   }
-}
-
-function renderNotes(notes) {
-  const target = $("#today-notes");
-  target.innerHTML = notes.length ? notes.slice(0, 4).map((note) => `<div class="note-card" style="border-color:${escapeHtml(note.color || "#64748b")}"><strong>${escapeHtml(note.title)}</strong><p>${escapeHtml(note.body || "")}</p></div>`).join("") : `<div class="empty-state">Skriv en note under indstillinger.</div>`;
 }
 
 function renderBirthdayGrid(birthdays) {
@@ -487,14 +494,6 @@ function openMemberModal(member = null) {
     await api(member ? `/api/members/${member.id}` : "/api/members", { method: member ? "PATCH" : "POST", body: payload });
     await loadSummary();
   }, member ? "Gem ændringer" : "Tilføj medlem");
-}
-
-function openNoteModal() {
-  const body = `${field("Overskrift", "title", "", "text", "required maxlength=120")}<label for="field-note-body">Indhold</label><textarea id="field-note-body" name="body" maxlength="10000" placeholder="En note til familien"></textarea><label for="field-note-color">Farve</label><input id="field-note-color" name="color" type="color" value="#64748b">`;
-  openModal("Tilføj note", body, async (values) => {
-    await api("/api/notes", { method: "POST", body: { title: values.title, body: values.body || "", color: values.color, pinned: false } });
-    await loadSummary();
-  }, "Tilføj");
 }
 
 function detectLabel(type) {
@@ -939,7 +938,6 @@ function bindEvents() {
   $("#settings-add-school").addEventListener("click", () => openCalendarModal(null, "school"));
   $("#settings-add-birthday").addEventListener("click", () => openBirthdayModal());
   $("#settings-add-frame").addEventListener("click", () => openFrameModal());
-  $("#settings-add-note").addEventListener("click", () => openNoteModal());
   $("#add-camera-button").addEventListener("click", () => openCameraModal());
   $("#settings-add-camera").addEventListener("click", () => openCameraModal());
   $("#cameras-refresh").addEventListener("click", async () => { await loadCameras(false); refreshCameraSnapshots(); showToast("Kameraer opdateret"); });
