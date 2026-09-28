@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
@@ -60,6 +60,7 @@ from .services import (
     upcoming_birthdays,
 )
 from .sync import CalendarSynchronizer
+from .version import BUILD_ID, VERSION, banner, build_info, mark_started
 
 logging.basicConfig(level=os.getenv("FAMILY_DASHBOARD_LOG_LEVEL", "INFO"))
 logger = logging.getLogger("family-dashboard")
@@ -147,7 +148,9 @@ def require_auth(request: Request) -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    mark_started()
     apply_log_level(database)
+    logger.warning(banner())
     stop_event = asyncio.Event()
     tasks: list[asyncio.Task] = []
 
@@ -169,7 +172,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Family Dashboard",
-    version="0.1.0",
+    version=VERSION,
     description="A local-first family calendar and home dashboard",
     lifespan=lifespan,
 )
@@ -200,8 +203,13 @@ async def security_headers(request: Request, call_next: Any) -> Response:
 
 
 @app.get("/", include_in_schema=False)
-async def index() -> FileResponse:
-    return FileResponse(settings.static_dir / "index.html", headers={"Cache-Control": "no-cache"})
+async def index() -> HTMLResponse:
+    html = (settings.static_dir / "index.html").read_text(encoding="utf-8")
+    # Byg-id på assets, så en browser aldrig kører gammel JS/CSS efter en opdatering.
+    for asset in ("/assets/styles.css", "/assets/app.js", "/manifest.webmanifest"):
+        html = html.replace(f'"{asset}"', f'"{asset}?v={BUILD_ID}"')
+    html = html.replace("{{BUILD}}", f"{VERSION} · build {BUILD_ID}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)
@@ -212,13 +220,25 @@ async def manifest() -> FileResponse:
 
 
 @app.get("/sw.js", include_in_schema=False)
-async def service_worker() -> FileResponse:
-    return FileResponse(settings.static_dir / "sw.js", media_type="application/javascript")
+async def service_worker() -> HTMLResponse:
+    script = (settings.static_dir / "sw.js").read_text(encoding="utf-8")
+    script = script.replace("__BUILD__", BUILD_ID)
+    return HTMLResponse(
+        script,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/health", include_in_schema=False)
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "family-dashboard", "version": app.version}
+    return {
+        "status": "ok",
+        "service": "family-dashboard",
+        "version": app.version,
+        "build": BUILD_ID,
+        "started_at": build_info()["started_at"],
+    }
 
 
 @app.get("/api/auth/status", include_in_schema=False)

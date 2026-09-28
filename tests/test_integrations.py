@@ -518,6 +518,25 @@ def test_camera_snapshot_route_serves_cached_image(tmp_path):
         main.reminders = old_reminders
 
 
+def test_build_is_visible_in_health_index_and_service_worker():
+    with TestClient(main.app) as client:
+        health = client.get("/api/health").json()
+        assert health["build"] == main.BUILD_ID
+        assert health["version"] == main.VERSION
+        assert health["started_at"]
+
+        index = client.get("/").text
+        assert "{{BUILD}}" not in index
+        assert main.BUILD_ID in index
+        assert f"/assets/app.js?v={main.BUILD_ID}" in index
+        assert f"/assets/styles.css?v={main.BUILD_ID}" in index
+        assert '"/assets/app.js"' not in index
+
+        worker = client.get("/sw.js").text
+        assert "__BUILD__" not in worker
+        assert main.BUILD_ID in worker
+
+
 def test_every_settings_field_can_be_saved(tmp_path):
     from app.schemas import SettingsUpdate
 

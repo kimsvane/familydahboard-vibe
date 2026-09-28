@@ -1,15 +1,20 @@
 FROM python:3.12-slim
 
+# Byg-identifikation. Sæt med:
+#   docker build --build-arg FAMILY_DASHBOARD_BUILD="$(git rev-parse --short HEAD)" ...
+ARG FAMILY_DASHBOARD_BUILD=""
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     FAMILY_DASHBOARD_HOST=0.0.0.0 \
     FAMILY_DASHBOARD_PORT=8080 \
     FAMILY_DASHBOARD_DATA_DIR=/data \
-    FAMILY_DASHBOARD_STATIC_DIR=/app/web
+    FAMILY_DASHBOARD_STATIC_DIR=/app/web \
+    FAMILY_DASHBOARD_BUILD=${FAMILY_DASHBOARD_BUILD}
 
 WORKDIR /app
-COPY requirements.txt pyproject.toml ./
+COPY requirements.txt pyproject.toml VERSION ./
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY app ./app

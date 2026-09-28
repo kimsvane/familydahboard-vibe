@@ -1,4 +1,4 @@
-const CACHE_NAME = "family-dashboard-v5";
+const CACHE_NAME = "family-dashboard-__BUILD__";
 const APP_SHELL = ["/", "/assets/styles.css", "/assets/app.js", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

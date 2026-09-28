@@ -287,6 +287,7 @@
                 <div><label for="setting-log-level">Log-niveau</label><select id="setting-log-level" name="log_level"><option value="error">Fejl</option><option value="warning">Advarsler (anbefalet)</option><option value="info">Info</option><option value="debug">Debug (detaljeret)</option></select></div>
               </div>
               <button class="button primary" id="logging-save" type="button">Gem log-indstillinger</button>
+              <p class="muted small-copy">Kørende build: <strong id="running-build">{{BUILD}}</strong>. Hvis denne ikke ændrer sig efter en genbygning, kører containeren stadig et gammelt image.</p>
             </form>
           </article>
           <article class="panel settings-card wide">
@@ -298,7 +299,7 @@
       </section>
     </main>
 
-    <footer class="app-footer"><span>Family Dashboard</span><span id="last-updated">—</span><button class="text-button" id="logout-button" type="button">Log ud</button></footer>
+    <footer class="app-footer"><span>Family Dashboard <span id="app-version">{{BUILD}}</span></span><span id="last-updated">—</span><button class="text-button" id="logout-button" type="button">Log ud</button></footer>
   </div>
 
   <div id="detect-popup" class="detect-popup" hidden></div>
