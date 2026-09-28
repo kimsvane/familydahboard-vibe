@@ -79,6 +79,39 @@ if [ -f "/Library/LaunchDaemons/${BUNDLE_ID}.plist" ]; then
   rm -f "/Library/LaunchDaemons/${BUNDLE_ID}.plist"
 fi
 
+# 1b. Stop FamilyBridge for alle ANDRE brugere.
+#
+# Der er kun ét login ad gangen, og kun den bruger der er logget ind har
+# adgang til EventKit. Hvis en tidligere konto har efterladt en agent eller
+# en rå process kørende, vil den fortsætte med at læse fra sine egne
+# databaser og holde porten, så den nye bruger aldrig kommer i gang.
+echo "==> Stopper FamilyBridge for andre brugere"
+for OTHER_HOME in /Users/*; do
+  [ -d "$OTHER_HOME" ] || continue
+  OTHER_USER="$(basename "$OTHER_HOME")"
+  [ "$OTHER_USER" = "$TARGET_USER" ] && continue
+  OTHER_UID="$(id -u "$OTHER_USER" 2>/dev/null || true)"
+  [ -n "$OTHER_UID" ] || continue
+  if launchctl print "gui/${OTHER_UID}/${BUNDLE_ID}" >/dev/null 2>&1; then
+    echo "    bootout ${OTHER_USER} (uid ${OTHER_UID})"
+    launchctl bootout "gui/${OTHER_UID}/${BUNDLE_ID}" >/dev/null 2>&1 || true
+  fi
+done
+# Rå processer, også efterladt af en tidligere konto eller et dobbeltklik.
+STALE_PIDS="$(pgrep -f "${EXECUTABLE}" 2>/dev/null || true)"
+if [ -n "$STALE_PIDS" ]; then
+  for PID in $STALE_PIDS; do
+    PID_USER="$(ps -o user= -p "$PID" 2>/dev/null | tr -d ' ')"
+    if [ "$PID_USER" != "$TARGET_USER" ]; then
+      echo "    dræber gammel proces $PID (${PID_USER})"
+      kill -9 "$PID" >/dev/null 2>&1 || true
+    else
+      kill -9 "$PID" >/dev/null 2>&1 || true
+    fi
+  done
+  sleep 1
+fi
+
 # 2. LaunchAgent i brugerens egen mappe, så EventKit kører i deres login-session.
 mkdir -p "$AGENT_DIR"
 sed -e "s/__BUNDLE_ID__/${BUNDLE_ID}/g" \
@@ -123,12 +156,42 @@ RUNNING="$(launchctl print "gui/${TARGET_UID}/${BUNDLE_ID}" >/dev/null 2>&1 && e
 INSTALLED_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
   "${APP}/Contents/Info.plist" 2>/dev/null || echo ukendt)"
 
+# Selvverificering: spørg den kørende server, så det er tydeligt om agenten
+# faktisk kører som den tilsigtede bruger med en ny nok binær.
+PORT="$(/usr/libexec/PlistBuddy -c "Print :port" \
+  "${TARGET_HOME}/Library/Application Support/${NAME}/config.json" 2>/dev/null || echo 8787)"
+OWNING_PID="$(lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN -t 2>/dev/null | head -1)"
+OWNING_USER=""
+RUNNING_VERSION=" ingen"
+if [ -n "$OWNING_PID" ]; then
+  OWNING_USER="$(ps -o user= -p "$OWNING_PID" 2>/dev/null | tr -d ' ')"
+  # Undgår python3, der ikke findes på alle macOS-versioner.
+  RUNNING_VERSION="$(curl -s -m 5 "http://127.0.0.1:${PORT}/health" \
+    -H "X-Bridge-Token: ${TOKEN}" 2>/dev/null \
+    | tr ',' '\n' | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' | head -1)"
+  [ -n "$RUNNING_VERSION" ] || RUNNING_VERSION="?"
+fi
+
 echo
 echo "  Bruger:        $TARGET_USER"
 echo "  Agent:         $AGENT_PLIST"
 echo "  Kører:         $RUNNING"
 echo "  Installeret:   $INSTALLED_VERSION"
+echo "  Kørende som:   ${OWNING_USER:-ingen proces}"
+echo "  Kørende vers.: ${RUNNING_VERSION}"
 echo "  Config/token:  $CONFIG_PATH"
+if [ -n "$OWNING_USER" ] && [ "$OWNING_USER" != "$TARGET_USER" ]; then
+  echo
+  echo "  FEJL: porten er holdt af '$OWNING_USER', ikke af '$TARGET_USER'."
+  echo "  Log denne bruger ud, eller dræb processen manuelt:"
+  echo "    sudo pkill -9 -f ${EXECUTABLE}"
+fi
+if [ -n "$RUNNING_VERSION" ] && [ "$RUNNING_VERSION" != "$INSTALLED_VERSION" ]; then
+  echo
+  echo "  ADVARSEL: den kørende proces er version $RUNNING_VERSION,"
+  echo "  men der er installeret $INSTALLED_VERSION. Genstart agenten:"
+  echo "    launchctl kickstart -k gui/${TARGET_UID}/${BUNDLE_ID}"
+fi
 if [ -n "$TOKEN" ]; then
   echo "  Token:         $TOKEN"
   echo
