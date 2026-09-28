@@ -62,19 +62,36 @@ if arguments.contains("--status") {
     exit(process.terminationStatus == 0 ? 0 : 1)
 }
 
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
+// Kørsel uden grafisk login-session (fx. SSH) kan ikke oprette en statusbar,
+// og ProcessType Interactive får launchd til at afvise agenten med EX_CONFIG.
+// Serveren skal derfor kunne køre uden UI.
+let hasGraphicalSession = ProcessInfo.processInfo.environment["SSH_CONNECTION"] == nil
+    && ProcessInfo.processInfo.environment["SSH_TTY"] == nil
+    && NSWorkspace.shared.frontmostApplication != nil
+
+if hasGraphicalSession {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+}
 
 let store = ReminderStore()
 let server = HTTPServer(config: config, store: store)
 Log.info("FamilyBridge starter, token gemt i \(BridgeConfig.fileURL.path)")
 
-var statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-let statusButton = statusItem.button!
-statusButton.title = "◐"
-statusButton.toolTip = "FamilyBridge"
+var statusItem: NSStatusItem?
+var statusButton: NSStatusBarButton?
+if hasGraphicalSession {
+    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    statusItem = item
+    statusButton = item.button
+    statusButton?.title = "◐"
+    statusButton?.toolTip = "FamilyBridge"
+} else {
+    Log.info("Ingen grafisk login-session: kører headless uden statusbar")
+}
 
 private func refreshUI() {
+    guard let statusButton else { return }
     if store.hasAccess {
         statusButton.title = "✓"
         statusButton.toolTip = "FamilyBridge – Påmindelser: adgang OK"
@@ -124,9 +141,11 @@ final class Coordinator: NSObject {
 
 let coordinator = Coordinator.shared
 
-statusButton.target = coordinator
-statusButton.action = #selector(Coordinator.showMenu)
-statusButton.sendAction(on: [NSEvent.EventTypeMask.leftMouseUp])
+if let statusButton {
+    statusButton.target = coordinator
+    statusButton.action = #selector(Coordinator.showMenu)
+    statusButton.sendAction(on: [NSEvent.EventTypeMask.leftMouseUp])
+}
 
 func showHelpDialog() {
     let alert = NSAlert()
@@ -149,7 +168,7 @@ extension Coordinator {
     @objc func showMenu() {
         refreshUI()
         let menu = buildMenu()
-        statusItem.menu = menu
+        statusItem?.menu = menu
     }
 
     @objc func showToken() {
@@ -190,15 +209,26 @@ do {
     try server.start()
 } catch {
     Log.error("Serveren kunne ikke starte: \(error)")
-    let alert = NSAlert()
-    alert.messageText = "FamilyBridge kunne ikke starte"
-    alert.informativeText = String(describing: error)
-    alert.alertStyle = .critical
-    alert.addButton(withTitle: "OK")
-    alert.runModal()
+    if hasGraphicalSession {
+        let alert = NSAlert()
+        alert.messageText = "FamilyBridge kunne ikke starte"
+        alert.informativeText = String(describing: error)
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    } else {
+        FileHandle.standardError.write(Data("FamilyBridge kunne ikke starte: \(error)\n".utf8))
+    }
     exit(1)
 }
 
 refreshUI()
 requestPermission()
-app.run()
+
+if hasGraphicalSession {
+    NSApplication.shared.run()
+} else {
+    // Uden grafisk session holder vi processen i live med en tom kørselsløkke.
+    // HTTPServer bruger sin egen tråd, så runLoop uden UI-arbejde er nok.
+    RunLoop.main.run(until: Date.distantFuture)
+}
