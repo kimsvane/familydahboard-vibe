@@ -50,6 +50,8 @@ struct BridgeConfig {
     var host: String
     var port: UInt16
     var notesTitle: String
+    /// Tidspunktet config.json blev læst. Bruges til at genindlæse ved ændring.
+    var loadedAt: Date = Date.distantPast
 
     static var directory: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -65,6 +67,24 @@ struct BridgeConfig {
         return override.isEmpty ? "0.0.0.0" : override
     }
 
+    /// Relæser configen, hvis filen er ændret siden sidste læsning.
+    ///
+    /// Nødvendigt fordi `enable-user.sh` og `postinstall` kan skrive et nyt
+    /// token direkte i config.json, mens serveren kører med det gamle i
+    /// hukommelsen. Uden denne genindlæsning ville et nygenereret token
+    /// først virke efter en genstart, mens det gamle stadig gav adgang.
+    static func reloadIfChanged(_ current: BridgeConfig) -> BridgeConfig {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+              let modified = attributes[.modificationDate] as? Date
+        else { return current }
+        guard modified > current.loadedAt else { return current }
+        guard let fresh = try? load() else { return current }
+        if fresh.token != current.token {
+            Log.info("Tokenet i config.json er ændret: \(current.token.prefix(4))… -> \(fresh.token.prefix(4))…")
+        }
+        return fresh
+    }
+
     static func load() throws -> BridgeConfig {
         let file = fileURL
         guard FileManager.default.fileExists(atPath: file.path) else {
@@ -76,7 +96,7 @@ struct BridgeConfig {
             )
             try fresh.save()
             Log.info("Nyt config oprettet i \(file.path)")
-            return fresh
+            return fresh.stamped()
         }
         let data = try Data(contentsOf: file)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
@@ -93,7 +113,14 @@ struct BridgeConfig {
             notesTitle: (json["notes_title"] as? String) ?? ""
         )
         if config.token != token || host != storedHost { try config.save() }
-        return config
+        return config.stamped()
+    }
+
+    private func stamped() -> BridgeConfig {
+        var copy = self
+        copy.loadedAt = (try? FileManager.default.attributesOfItem(atPath: Self.fileURL.path))
+            .flatMap { $0[.modificationDate] as? Date } ?? Date()
+        return copy
     }
 
     func save() throws {
@@ -170,7 +197,7 @@ enum Trim {
 
     ///Fjerner for- og bagvedlige mellemrum.
     static func spaces(_ value: String) -> String {
-        var scalars = Array(value.unicodeScalars)
+        let scalars = Array(value.unicodeScalars)
         var start = scalars.startIndex
         var end = scalars.endIndex
         while start < end, isSpace(scalars[start]) { start += 1 }

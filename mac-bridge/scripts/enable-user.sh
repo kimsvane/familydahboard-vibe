@@ -104,17 +104,30 @@ if launchctl bootstrap "gui/${TARGET_UID}" "$AGENT_PLIST" >/dev/null 2>&1; then
 else
   launchctl load -w "$AGENT_PLIST" >/dev/null 2>&1 || true
 fi
-launchctl kickstart -k "gui/${TARGET_UID}/${BUNDLE_ID}" >/dev/null 2>&1 || true
+if ! launchctl kickstart -k "gui/${TARGET_UID}/${BUNDLE_ID}" >/dev/null 2>&1; then
+  # kickstart kan fejle hvis launchd endnu ikke har registreret agenten.
+  # Uden en genstart ville den gamle binære og det gamle token blive liggende,
+  # selv om filerne på disken er opdateret.
+  launchctl bootout "gui/${TARGET_UID}/${BUNDLE_ID}" >/dev/null 2>&1 || true
+  if launchctl bootstrap "gui/${TARGET_UID}" "$AGENT_PLIST" >/dev/null 2>&1; then
+    echo "    genstartede agenten (kickstart fejlede)"
+  else
+    launchctl load -w "$AGENT_PLIST" >/dev/null 2>&1 || true
+  fi
+fi
 
-sleep 1
+sleep 2
 
 TOKEN="$(launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" "$EXECUTABLE" --token 2>/dev/null || true)"
 RUNNING="$(launchctl print "gui/${TARGET_UID}/${BUNDLE_ID}" >/dev/null 2>&1 && echo ja || echo nej)"
+INSTALLED_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+  "${APP}/Contents/Info.plist" 2>/dev/null || echo ukendt)"
 
 echo
 echo "  Bruger:        $TARGET_USER"
 echo "  Agent:         $AGENT_PLIST"
 echo "  Kører:         $RUNNING"
+echo "  Installeret:   $INSTALLED_VERSION"
 echo "  Config/token:  $CONFIG_PATH"
 if [ -n "$TOKEN" ]; then
   echo "  Token:         $TOKEN"

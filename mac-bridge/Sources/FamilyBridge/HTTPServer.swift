@@ -44,7 +44,10 @@ struct HTTPResponse {
 
 /// Small blocking-free HTTP/1.1 server: one socket per request, `Connection: close`.
 final class HTTPServer {
-    private let config: BridgeConfig
+    /// Genindlæses fra disk ved hvert request, så et token, der skrives af
+    /// enable-user.sh eller postinstall, tager virkning uden genstart.
+    private var config: BridgeConfig
+    private let configLock = NSLock()
     private let store: ReminderStore
     private var listenFD: Int32 = -1
     private let acceptQueue = DispatchQueue(label: "bridge.http.accept")
@@ -176,7 +179,15 @@ final class HTTPServer {
         return object
     }
 
+    private func currentConfig() -> BridgeConfig {
+        configLock.lock()
+        defer { configLock.unlock() }
+        config = BridgeConfig.reloadIfChanged(config)
+        return config
+    }
+
     private func authorized(_ request: HTTPRequest) -> Bool {
+        let config = currentConfig()
         if let header = request.header("authorization"),
            header.lowercased().hasPrefix("bearer "),
            Token.matches(Trim.spaces(String(header.dropFirst(7))), config.token)
@@ -245,7 +256,7 @@ final class HTTPServer {
                 try store.delete(id: id)
                 return .ok(["deleted": true])
             case ("GET", "/notes"):
-                let match = request.query["title"] ?? config.notesTitle
+                let match = request.query["title"] ?? currentConfig().notesTitle
                 let limit = Int(request.query["limit"] ?? "200") ?? 200
                 return .ok(["notes": try NotesService.notes(titleMatch: match.isEmpty ? nil : match, limit: limit)])
             case ("POST", "/notes"):
