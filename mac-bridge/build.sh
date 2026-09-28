@@ -49,6 +49,8 @@ echo "==> Samler staging-rod + LaunchAgent-skabelon"
 sed -e "s/__BUNDLE_ID__/$BUNDLE_ID/g" -e "s/__LABEL__/$BUNDLE_ID/g" \
     -e "s#__EXECUTABLE__#/Applications/$NAME.app/Contents/MacOS/$NAME#g" \
     Resources/LaunchAgent.plist.template > "$TEMPLATE_DIR/LaunchAgent.plist.template"
+cp scripts/enable-user.sh "$TEMPLATE_DIR/enable-user.sh"
+chmod 755 "$TEMPLATE_DIR/enable-user.sh"
 cp -R "$APP" "$STAGE/Applications/"
 
 # Fjern xattrs/AppleDouble, så pkg-payload ikke fyldes med ._-filer.

@@ -46,4 +46,8 @@ if [ -n "$TOKEN" ]; then
 fi
 
 echo "FamilyBridge er klar. Godkend adgang under Systemindstillinger > Anonymitet og sikkerhed > Påmindelser."
+echo
+echo "Skal en anden bruger også have adgang, kør:"
+echo "  sudo /Library/Application\ Support/FamilyBridge/enable-user.sh <brugernavn>"
+echo "Hver bruger får sit eget token og sin egen adgangstilladelse."
 exit 0
