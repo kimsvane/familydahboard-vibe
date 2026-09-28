@@ -31,7 +31,10 @@ lipo -create "$BUILD_DIR/$NAME-arm64" "$BUILD_DIR/$NAME-x86_64" -output "$APP/Co
 rm -f "$BUILD_DIR/$NAME-arm64" "$BUILD_DIR/$NAME-x86_64"
 
 echo "==> Samler .app"
-cp Resources/Info.plist "$APP/Contents/Info.plist"
+# Versionen skrives ind i Info.plist, så /health kan rapportere den rigtige
+# version i stedet for en fastsat konstant.
+sed -e "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist" >/dev/null
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 # Uden dette lægger macOS ._AppleDouble-filer ind i pkg-payload.
 export COPYFILE_DISABLE=1
