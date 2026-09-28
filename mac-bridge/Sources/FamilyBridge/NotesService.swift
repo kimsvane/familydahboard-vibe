@@ -10,6 +10,10 @@ enum NotesService {
 
     static func notes(titleMatch: String?, limit: Int = 200) throws -> [[String: Any]] {
         guard available else { throw BridgeError.config("Notes.app blev ikke fundet på denne Mac") }
+        // `body of n` er en Apple Event pr. note. En konto med 142 noter kan
+        // derfor ikke hente alle kroppe inden for timeout'en, så uden en titel
+        // returnerer vi kun id, titel og dato.
+        let wantsBody = !(titleMatch ?? "").isEmpty
         let script = """
         set fieldSep to (ASCII character 31)
         set recordSep to (ASCII character 30)
@@ -19,7 +23,7 @@ enum NotesService {
             repeat with n in notes
                 set nName to (name of n) as string
                 if targetName is "" then
-                    set out to out & (id of n as string) & fieldSep & nName & fieldSep & (body of n as string) & fieldSep & ((modification date of n) as string) & recordSep
+                    set out to out & (id of n as string) & fieldSep & nName & fieldSep & ((modification date of n) as string) & recordSep
                 else if nName is targetName then
                     set out to out & (id of n as string) & fieldSep & nName & fieldSep & (body of n as string) & fieldSep & ((modification date of n) as string) & recordSep
                 end if
@@ -31,15 +35,19 @@ enum NotesService {
         var results: [[String: Any]] = []
         for record in output.components(separatedBy: recordSeparator) where !record.isEmpty {
             let fields = record.components(separatedBy: fieldSeparator)
-            guard fields.count >= 3 else { continue }
-            let html = fields[2]
+            guard fields.count >= 2 else { continue }
+            // AppleScripts `is` er case-insensitiv, så "fmd" ville ramme "FMD".
+            // Den eksakte kontrol sker derfor her i Swift.
+            if let wanted = titleMatch, !wanted.isEmpty, fields[1] != wanted { continue }
+            let html = wantsBody && fields.count > 2 ? fields[2] : ""
             let body = HTML.plainText(from: html)
-            let modified = Dates.parseDay(fields.count > 3 ? fields[3] : "") ?? Date()
+            let modified = Dates.parseDay(fields.last ?? "") ?? Date()
             results.append([
                 "id": fields[0],
                 "title": fields[1],
                 "text": body,
                 "html": html,
+                "body_loaded": wantsBody,
                 "modified": Dates.iso.string(from: modified),
             ])
             if results.count >= limit { break }
@@ -49,22 +57,45 @@ enum NotesService {
 
     static func save(title: String, content: String) throws -> [String: Any] {
         guard available else { throw BridgeError.config("Notes.app blev ikke fundet på denne Mac") }
-        let html = htmlBody(content)
-        let script = """
-        set targetName to "\(escape(title))"
-        set newBody to "\(escape(html))"
+
+        // AppleScripts `is` er case-insensitiv, så vi må ikke skrive direkte på
+        // et match. Først finder vi den eksakte id, derefter skriver vi til den.
+        let listing = try runScript("""
+        set fieldSep to (ASCII character 31)
+        set recordSep to (ASCII character 30)
+        set out to ""
         tell application "Notes"
             repeat with n in notes
-                if (name of n as string) is targetName then
-                    set body of n to newBody
-                    return ((id of n as string) & fieldSep & (name of n as string) & fieldSep & (body of n as string) & fieldSep & ((modification date of n) as string))
-                end if
+                set out to out & (id of n as string) & fieldSep & ((name of n) as string) & recordSep
             end repeat
         end tell
-        error "note-not-found"
-        """
-        let prelude = "set fieldSep to (ASCII character 31)\n"
-        let output = try runScript(prelude + script)
+        return out
+        """)
+        var matches: [(id: String, name: String)] = []
+        for record in listing.components(separatedBy: recordSeparator) where !record.isEmpty {
+            let fields = record.components(separatedBy: fieldSeparator)
+            guard fields.count >= 2, fields[1] == title else { continue }
+            matches.append((fields[0], fields[1]))
+        }
+        if matches.isEmpty {
+            throw BridgeError.config("Ingen note med titlen \"\(title)\" blev fundet.")
+        }
+        if matches.count > 1 {
+            throw BridgeError.config(
+                "Der er \(matches.count) noter med titlen \"\(title)\". Giv dem unikke titler, ellers ved vi ikke hvilken der skal skrives."
+            )
+        }
+
+        let html = htmlBody(content)
+        let output = try runScript("""
+        set fieldSep to (ASCII character 31)
+        set newBody to "\(escape(html))"
+        tell application "Notes"
+            set n to note id "\(escape(matches[0].id))"
+            set body of n to newBody
+            return ((id of n as string) & fieldSep & (name of n as string) & fieldSep & (body of n as string) & fieldSep & ((modification date of n) as string))
+        end tell
+        """)
         let fields = output.components(separatedBy: fieldSeparator)
         guard fields.count >= 3 else { throw BridgeError.config("Kunne ikke gemme noten") }
         return [
@@ -72,6 +103,7 @@ enum NotesService {
             "title": fields[1],
             "text": HTML.plainText(from: fields[2]),
             "html": fields[2],
+            "body_loaded": true,
             "modified": Dates.iso.string(from: Dates.parseDay(fields.count > 3 ? fields[3] : "") ?? Date()),
         ]
     }
