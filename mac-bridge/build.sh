@@ -33,7 +33,8 @@ rm -f "$BUILD_DIR/$NAME-arm64" "$BUILD_DIR/$NAME-x86_64"
 echo "==> Samler .app"
 # Versionen skrives ind i Info.plist, så /health kan rapportere den rigtige
 # version i stedet for en fastsat konstant.
-sed -e "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
+sed -e "s/__VERSION__/$VERSION/g" -e "s/__MACOS_MIN__/$MACOS_MIN/g" \
+    Resources/Info.plist > "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist" >/dev/null
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 # Uden dette lægger macOS ._AppleDouble-filer ind i pkg-payload.
@@ -77,6 +78,14 @@ if nm -u "$BINARY" 2>/dev/null | grep -q "CharacterSetV11whitespaces"; then
 fi
 echo "  arkitekturer: $(lipo -archs "$BINARY")"
 echo "  min. macOS:   $(otool -l "$BINARY" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+PLIST_MIN="$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist")"
+BIN_MIN="$(otool -l "$BINARY" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+if [ "$PLIST_MIN" != "$BIN_MIN" ]; then
+  # LSMinimumSystemVersion afgør, om LaunchServices overhovedet starter appen.
+  # Har de to forskellige minimum, giver macOS "requires macOS X or later".
+  echo "FEJL: Info.plist kræver macOS $PLIST_MIN, men binaryen er bygget til $BIN_MIN."
+  exit 1
+fi
 codesign --verify --deep --strict "$APP"
 installer -pkginfo -pkg "$OUT" >/dev/null
 xar -tf "$OUT"
