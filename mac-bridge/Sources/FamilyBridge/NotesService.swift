@@ -96,6 +96,13 @@ enum NotesService {
     /// på Notes.app eller på en TCC-dialog, der aldrig kan vises headless.
     private static let scriptTimeout: TimeInterval = 20
 
+    /// Samler output fra læsetråden, så den kan afleveres når tidsfristen er ude.
+    private final class ThreadReader {
+        let lock: NSLock
+        var data = Data()
+        init(lock: NSLock) { self.lock = lock }
+    }
+
     private static func runScript(_ script: String) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
@@ -112,31 +119,32 @@ enum NotesService {
             throw BridgeError.config("Kunne ikke starte osascript: \(error.localizedDescription)")
         }
 
-        var collected = Data()
-        let deadline = Date().addingTimeInterval(scriptTimeout)
-        var timedOut = false
-        while true {
-            let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else {
-                timedOut = true
-                break
-            }
-            // Læs kun det der er tilgængeligt nu, så vi venter på data og ikke
-            // på EOF fra en proces, der aldrig afslutter.
-            let chunk = pipe.fileHandleForReading.availableData
-            if chunk.isEmpty {
-                if !process.isRunning { break }
-                Thread.sleep(forTimeInterval: 0.05)
-                continue
-            }
-            collected.append(chunk)
+        // availableData blokerer, indtil der kommer data eller EOF, så det kan
+        // ikke bruges til en timeout. Derfor læses på en egen tråd, mens
+        // hovedtråden venter på en semafor med tidsgrænse.
+        let lock = NSLock()
+        let reader = ThreadReader(lock: lock)
+        let finished = DispatchSemaphore(value: 0)
+        let worker = Thread {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            lock.lock()
+            reader.data = data
+            lock.unlock()
+            finished.signal()
         }
-        if timedOut {
+        worker.stackSize = 1 << 19
+        worker.start()
+
+        guard finished.wait(timeout: .now() + scriptTimeout) == .success else {
             process.terminate()
             throw BridgeError.config(
-                "Notes.app svarede ikke inden \(Int(scriptTimeout)) sekunder. Er Notes.app åben, og er der en dialog i vente?"
+                "Notes.app svarede ikke inden \(Int(scriptTimeout)) sekunder. "
+                    + "Er Notes.app åben, og står der en dialog i vente?"
             )
         }
+        lock.lock()
+        let collected = reader.data
+        lock.unlock()
         process.waitUntilExit()
 
         let text = String(data: collected, encoding: .utf8) ?? ""
