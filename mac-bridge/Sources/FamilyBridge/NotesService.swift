@@ -92,26 +92,56 @@ enum NotesService {
             .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
+    /// Timeout for et Notes-script. Uden den hænger en anmodning, der venter
+    /// på Notes.app eller på en TCC-dialog, der aldrig kan vises headless.
+    private static let scriptTimeout: TimeInterval = 20
+
     private static func runScript(_ script: String) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", script]
+
+        // Ét rør for begge strømme. Med to separate rør døde kaldet fast, fordi
+        // vi læste stdout til EOF mens barnet blokerede på en fyldt stderr-pipe.
         let pipe = Pipe()
         process.standardOutput = pipe
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
+        process.standardError = pipe
         do {
             try process.run()
         } catch {
             throw BridgeError.config("Kunne ikke starte osascript: \(error.localizedDescription)")
         }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+
+        var collected = Data()
+        let deadline = Date().addingTimeInterval(scriptTimeout)
+        var timedOut = false
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                timedOut = true
+                break
+            }
+            // Læs kun det der er tilgængeligt nu, så vi venter på data og ikke
+            // på EOF fra en proces, der aldrig afslutter.
+            let chunk = pipe.fileHandleForReading.availableData
+            if chunk.isEmpty {
+                if !process.isRunning { break }
+                Thread.sleep(forTimeInterval: 0.05)
+                continue
+            }
+            collected.append(chunk)
+        }
+        if timedOut {
+            process.terminate()
+            throw BridgeError.config(
+                "Notes.app svarede ikke inden \(Int(scriptTimeout)) sekunder. Er Notes.app åben, og er der en dialog i vente?"
+            )
+        }
         process.waitUntilExit()
-        let text = String(data: data, encoding: .utf8) ?? ""
+
+        let text = String(data: collected, encoding: .utf8) ?? ""
         if process.terminationStatus != 0 {
-            let message = String(data: errorData, encoding: .utf8) ?? "ukendt fejl"
-            let trimmed = Trim.linesAndSpaces(message)
+            let trimmed = Trim.linesAndSpaces(text)
             if trimmed.contains("-1743") || trimmed.contains("not allowed") || trimmed.contains("Not authorized") {
                 throw BridgeError.config(
                     "Notes.app nægtede adgang. Giv FamilyBridge adgang under Systemindstillinger > Anonymitet og sikkerhed > Automatisering."
