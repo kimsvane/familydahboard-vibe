@@ -80,7 +80,7 @@ enum NotesService {
     private static func htmlBody(_ content: String) -> String {
         let paragraphs = content
             .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { Trim.spaces($0) }
             .filter { !$0.isEmpty }
         if paragraphs.isEmpty { return "" }
         return paragraphs.map { "<p>\(escape($0))</p>" }.joined()
@@ -111,7 +111,7 @@ enum NotesService {
         let text = String(data: data, encoding: .utf8) ?? ""
         if process.terminationStatus != 0 {
             let message = String(data: errorData, encoding: .utf8) ?? "ukendt fejl"
-            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = Trim.linesAndSpaces(message)
             if trimmed.contains("-1743") || trimmed.contains("not allowed") || trimmed.contains("Not authorized") {
                 throw BridgeError.config(
                     "Notes.app nægtede adgang. Giv FamilyBridge adgang under Systemindstillinger > Anonymitet og sikkerhed > Automatisering."
@@ -119,6 +119,6 @@ enum NotesService {
             }
             throw BridgeError.config("Notes-script fejlede: \(trimmed)")
         }
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Trim.linesAndSpaces(text)
     }
 }

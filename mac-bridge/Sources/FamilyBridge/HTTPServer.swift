@@ -158,7 +158,7 @@ final class HTTPServer {
         for line in lines where !line.isEmpty {
             let kv = line.components(separatedBy: ":")
             guard kv.count >= 2 else { continue }
-            headers[kv[0].lowercased()] = kv.dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces)
+            headers[kv[0].lowercased()] = Trim.spaces(kv.dropFirst().joined(separator: ":"))
         }
         return HTTPRequest(
             method: start[0].uppercased(),
@@ -179,7 +179,7 @@ final class HTTPServer {
     private func authorized(_ request: HTTPRequest) -> Bool {
         if let header = request.header("authorization"),
            header.lowercased().hasPrefix("bearer "),
-           Token.matches(String(header.dropFirst(7)).trimmingCharacters(in: .whitespaces), config.token)
+           Token.matches(Trim.spaces(String(header.dropFirst(7))), config.token)
         { return true }
         if let header = request.header("x-bridge-token"),
            Token.matches(header, config.token)
@@ -214,7 +214,7 @@ final class HTTPServer {
                 return .ok(["todos": try store.todos(listId: listId, includeDone: includeDone)])
             case ("POST", "/todos"):
                 let body = jsonBody(request)
-                let title = (body["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+                let title = Trim.spaces(body["title"] as? String ?? "")
                 guard !title.isEmpty else { return .error(400, "Titel er påkrævet") }
                 return .ok([
                     "todo": try store.create(
@@ -250,7 +250,7 @@ final class HTTPServer {
                 return .ok(["notes": try NotesService.notes(titleMatch: match.isEmpty ? nil : match, limit: limit)])
             case ("POST", "/notes"):
                 let body = jsonBody(request)
-                let title = (body["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+                let title = Trim.spaces(body["title"] as? String ?? "")
                 guard !title.isEmpty else { return .error(400, "Titel er påkrævet") }
                 return .ok(["note": try NotesService.save(title: title, content: body["content"] as? String ?? "")])
             default:

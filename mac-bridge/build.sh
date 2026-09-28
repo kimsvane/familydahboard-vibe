@@ -18,9 +18,13 @@ rm -rf "$BUILD_DIR"
 TEMPLATE_DIR="$STAGE/Library/Application Support/FamilyBridge"
 mkdir -p "$APP/Contents/MacOS" "$STAGE/Applications" "$TEMPLATE_DIR"
 
-echo "==> Kompilerer universal binary ($NAME $VERSION)"
+# Monterey (macOS 12) er det ældste understøttede system. Sæt MACOS_MIN
+# hvis bridgeen skal køre på Big Sur (11) eller ældre.
+MACOS_MIN="${MACOS_MIN:-12.0}"
+
+echo "==> Kompilerer universal binary ($NAME $VERSION, macOS >= $MACOS_MIN)"
 for ARCH in arm64 x86_64; do
-  swiftc -swift-version 5 -target "${ARCH}-apple-macosx13.0" -O \
+  swiftc -swift-version 5 -target "${ARCH}-apple-macosx${MACOS_MIN}" -O \
     -o "$BUILD_DIR/$NAME-$ARCH" Sources/FamilyBridge/*.swift
 done
 lipo -create "$BUILD_DIR/$NAME-arm64" "$BUILD_DIR/$NAME-x86_64" -output "$APP/Contents/MacOS/$NAME"
@@ -59,6 +63,16 @@ OUT="$HERE/$NAME-$VERSION.pkg"
 cp "$BUILD_DIR/$NAME.pkg" "$OUT"
 
 echo "==> Verificerer"
+# Bevidst ingen CharacterSet.whitespaces: det symbol findes ikke i Montneys
+# Swift-overlay og får dyld til at nægte at starte appen.
+BINARY="$APP/Contents/MacOS/$NAME"
+if nm -u "$BINARY" 2>/dev/null | grep -q "CharacterSetV11whitespaces"; then
+  echo "FEJL: buildet bruger CharacterSet.whitespaces, som ikke virker på macOS 12."
+  exit 1
+fi
+echo "  arkitekturer: $(lipo -archs "$BINARY")"
+echo "  min. macOS:   $(otool -l "$BINARY" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+codesign --verify --deep --strict "$APP"
 installer -pkginfo -pkg "$OUT" >/dev/null
 xar -tf "$OUT"
 

@@ -150,7 +150,37 @@ enum HTML {
             text = text.replacingOccurrences(of: entity, with: replacement, options: .caseInsensitive)
         }
         text = text.replacingOccurrences(of: "\\s+\n", with: "\n", options: .regularExpression)
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Trim.linesAndSpaces(text)
+    }
+}
+
+/// Ren-Swift-trim. Bevidst undviger CharacterSet.whitespaces /
+/// .whitespacesAndNewlines: de er Swift-statiske egenskaber i Foundation-
+/// overlayet, som ikke findes i alle macOS-versioners runtime (f.eks. Monterey),
+/// og giver en dyld-fejl ved start.
+enum Trim {
+    private static func isSpace(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0x85, 0xA0:
+            return true
+        default:
+            return false
+        }
+    }
+
+    ///Fjerner for- og bagvedlige mellemrum.
+    static func spaces(_ value: String) -> String {
+        var scalars = Array(value.unicodeScalars)
+        var start = scalars.startIndex
+        var end = scalars.endIndex
+        while start < end, isSpace(scalars[start]) { start += 1 }
+        while end > start, isSpace(scalars[end - 1]) { end -= 1 }
+        return String(String.UnicodeScalarView(scalars[start..<end]))
+    }
+
+    /// Fjerner for- og bagvedlige mellemrum, inkl. linjeskift.
+    static func linesAndSpaces(_ value: String) -> String {
+        spaces(value)
     }
 }
 
@@ -182,7 +212,7 @@ enum Dates {
     }
 
     static func parseDay(_ value: String) -> Date? {
-        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        let trimmed = Trim.spaces(value)
         guard !trimmed.isEmpty else { return nil }
         if let date = isoDay.date(from: trimmed) { return date }
         let withTime = DateFormatter()
