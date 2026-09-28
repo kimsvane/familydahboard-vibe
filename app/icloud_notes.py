@@ -159,14 +159,20 @@ class ICloudNotes:
     def _find_note_in_folder(
         self, connection: imaplib.IMAP4_SSL, folder: str, title: str
     ) -> Optional[str]:
-        typ, _ = connection.select(folder)
+        typ, select_data = connection.select(folder)
         if typ != "OK":
             raise NotesError("Kunne ikke åbne Notes-mappen")
+        if select_data and select_data[0]:
+            logger.debug(
+                "Mappe %r åbnet: %s", folder, select_data[0].decode(errors="replace")
+            )
         typ, data = connection.uid("search", None, "ALL")
         if typ != "OK" or not data or not data[0]:
+            logger.debug("Mappe %r: search gav intet (status=%r)", folder, typ)
             return None
         uids = data[0].split()
         if not uids:
+            logger.debug("Mappe %r: ingen noter i mappen", folder)
             return None
         comma_uids = ",".join(
             uid.decode() if isinstance(uid, bytes) else str(uid) for uid in uids

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 #: Semantisk version – holdes synkron med pyproject.toml.
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 _VERSION_FILE = Path(__file__).resolve().parent.parent / "VERSION"
 

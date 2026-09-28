@@ -1,6 +1,6 @@
 [project]
 name = "family-dashboard"
-version = "0.2.0"
+version = "0.2.1"
 description = "A local-first family calendar and home dashboard"
 requires-python = ">=3.9"
 dependencies = [

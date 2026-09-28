@@ -146,6 +146,12 @@ class ReolinkCamera:
         try:
             body = response.json()
         except ValueError as exc:
+            logger.debug(
+                "Reolink %s svarede %s (ikke JSON): %r",
+                command,
+                response.headers.get("content-type"),
+                response.text[:300],
+            )
             raise ReolinkError("Kameraet returnerede ugyldigt JSON") from exc
         if not isinstance(body, list) or not body:
             raise ReolinkError("Kameraet returnerede en tom respons")
@@ -154,6 +160,20 @@ class ReolinkCamera:
             meaning = _REOLINK_ERROR_CODES.get(
                 int(code), "ukendt fejl"
             )
+            logger.debug(
+                "Reolink %s på %s -> code=%s; rå svar: %r",
+                command,
+                self.base_url,
+                code,
+                body[0],
+            )
+            if code == 1:
+                logger.debug(
+                    "Reolink login-parametre: bruger=%r, adgangskodelængde=%d, kanal=%d",
+                    self.username,
+                    len(self.password),
+                    self.channel,
+                )
             raise ReolinkError(f"Kameraet afviste forespørgslen (code={code} – {meaning})")
         return body
 
