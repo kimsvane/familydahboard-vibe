@@ -114,7 +114,8 @@ input:hover, textarea:hover, select:hover { border-color: rgba(159, 181, 222, 0.
   min-height: 0;
   overflow: hidden;
 }
-.view[data-view-panel="today"] .panel-heading { flex: 0 0 auto; }
+.view[data-view-panel="today"] .panel-heading,
+.view[data-view-panel="today"] .panel > .inline-form { flex: 0 0 auto; }
 /* Selve listen får den ledende plads og klipper sig selv ved behov. */
 .view[data-view-panel="today"] .event-list,
 .view[data-view-panel="today"] .birthday-list,
