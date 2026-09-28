@@ -3,6 +3,13 @@ FROM python:3.12-slim
 # Byg-identifikation. Sæt med:
 #   docker build --build-arg FAMILY_DASHBOARD_BUILD="$(git rev-parse --short HEAD)" ...
 ARG FAMILY_DASHBOARD_BUILD=""
+ARG FAMILY_DASHBOARD_VERSION="0.0.0"
+
+# Labels gør build og version synlige via `docker inspect` og i TrueNAS'
+# containerliste, uden at man skal starte containeren for at finde ud af det.
+LABEL org.opencontainers.image.version="${FAMILY_DASHBOARD_VERSION}" \
+      org.opencontainers.image.revision="${FAMILY_DASHBOARD_BUILD}" \
+      org.opencontainers.image.source="https://github.com/kimsvane/familydahboard-vibe"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

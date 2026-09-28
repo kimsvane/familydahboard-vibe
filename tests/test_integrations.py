@@ -536,6 +536,8 @@ def test_build_is_visible_in_health_index_and_service_worker():
         assert '"/assets/app.js"' not in index
 
         worker = client.get("/sw.js").text
+        assert "{{BUILD_ID}}" not in index
+        assert f'window.__FD_BUILD__ = "{main.BUILD_ID}"' in index
         assert "__BUILD__" not in worker
         assert main.BUILD_ID in worker
 

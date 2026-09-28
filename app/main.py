@@ -243,6 +243,7 @@ async def index() -> HTMLResponse:
     for asset in ("/assets/styles.css", "/assets/app.js", "/manifest.webmanifest"):
         html = html.replace(f'"{asset}"', f'"{asset}?v={BUILD_ID}"')
     html = html.replace("{{BUILD}}", f"{VERSION} · build {BUILD_ID}")
+    html = html.replace("{{BUILD_ID}}", BUILD_ID)
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 

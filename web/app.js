@@ -1139,7 +1139,31 @@ function bindEvents() {
   window.addEventListener("offline", () => setConnection(false, "Offline"));
 }
 
+/// En forældet index.html kan pege på en gammel app.js, som så skriver ind i
+/// elementer, der ikke længere findes, og appen dør ved login. Derfor tjekker
+/// vi at den kørende build passer med serverens, og genindlæser hvis ikke.
+async function verifyBuild() {
+  if (!window.__FD_BUILD__) return;
+  let serverBuild = "";
+  try {
+    const response = await fetch("/api/health", { cache: "no-store" });
+    if (!response.ok) return;
+    serverBuild = ((await response.json()) || {}).build || "";
+  } catch {
+    return;
+  }
+  if (!serverBuild || serverBuild === window.__FD_BUILD__) {
+    sessionStorage.removeItem("fd-stale-build");
+    return;
+  }
+  const key = `fd-stale-build:${serverBuild}:${window.__FD_BUILD__}`;
+  if (sessionStorage.getItem("fd-stale-build") === key) return;
+  sessionStorage.setItem("fd-stale-build", key);
+  location.reload();
+}
+
 async function init() {
+  await verifyBuild();
   bindEvents();
   showView(state.activeView);
   try {

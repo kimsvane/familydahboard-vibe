@@ -7,6 +7,7 @@
   <meta name="description" content="Familiedashboard med kalender, fødselsdage og hjemmeframes">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/assets/styles.css">
+  <script>window.__FD_BUILD__ = "{{BUILD_ID}}";</script>
   <title>Familiedashboard</title>
 </head>
 <body>
@@ -21,6 +22,7 @@
         <input id="login-password" name="password" type="password" autocomplete="current-password" required autofocus>
         <button class="button primary full" type="submit">Log ind</button>
         <p id="login-error" class="error-text" role="alert"></p>
+        <p class="muted small-copy login-build">Family Dashboard <span id="login-version">{{BUILD}}</span></p>
       </form>
     </div>
   </section>
