@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>FamilyBridge</string>
+	<key>CFBundleDisplayName</key>
+	<string>FamilyBridge</string>
+	<key>CFBundleIdentifier</key>
+	<string>dk.ssvanefamily.bridge</string>
+	<key>CFBundleExecutable</key>
+	<string>FamilyBridge</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Family Dashboard bridge</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>FamilyBridge læser og opretter påmindelser, så Family Dashboard kan vise dem på tværs af Apple-enheder.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>FamilyBridge læser og opretter påmindelser, så Family Dashboard kan vise dem på tværs af Apple-enheder.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>FamilyBridge læser påmindelseslister, så Family Dashboard kan vise dem.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>FamilyBridge læser påmindelseslister, så Family Dashboard kan vise dem.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>FamilyBridge læser iCloud Notes, hvis du har valgt notes som datakilde.</string>
+</dict>
+</plist>

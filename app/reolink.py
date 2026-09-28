@@ -167,12 +167,10 @@ class ReolinkCamera:
                 code,
                 body[0],
             )
-            if code == 1:
-                logger.debug(
-                    "Reolink login-parametre: bruger=%r, adgangskodelængde=%d, kanal=%d",
-                    self.username,
-                    len(self.password),
-                    self.channel,
+            if code == 1 and not self.password:
+                raise ReolinkError(
+                    "Kameraet afviste login (code=1) – intet password er gemt for "
+                    "kameraet. Indtast adgangskoden under Kameraer."
                 )
             raise ReolinkError(f"Kameraet afviste forespørgslen (code={code} – {meaning})")
         return body
@@ -180,6 +178,11 @@ class ReolinkCamera:
     async def _ensure_token(self, client: httpx.AsyncClient) -> str:
         if self._token and time.monotonic() - self._token_at < TOKEN_REFRESH_SECONDS:
             return self._token
+        if not self.password:
+            raise ReolinkError(
+                "Intet password er gemt for kameraet – indtast kameraets adgangskode "
+                "under Kameraer, ellers afviser Reolink login (code=1)"
+            )
         digest = hashlib.md5(self.password.encode("utf-8")).hexdigest()
         body = await self._post(
             client,

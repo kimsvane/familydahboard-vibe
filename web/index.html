@@ -238,13 +238,38 @@
           <article class="panel settings-card wide">
             <div class="panel-heading"><div><p class="eyebrow">iCloud</p><h2>Delte checkliste (Påmindelser)</h2></div><span class="status-badge" id="reminders-status">Ikke konfigureret</span></div>
             <form id="icloud-reminders-form" class="stack-form">
-              <label class="check-label"><input type="checkbox" name="reminders_enabled"> Aktivér synk med iCloud Påmindelser</label>
-              <label for="setting-reminders-username">Apple-id</label><input id="setting-reminders-username" name="reminders_username" type="email" maxlength="320" autocomplete="username">
-              <label for="setting-reminders-password">App-specifikt password</label><input id="setting-reminders-password" name="reminders_app_password" type="password" autocomplete="new-password" placeholder="Kun nødvendigt, hvis det skal ændres">
+              <label for="setting-reminders-source">Hvor skal påmindelserne hentes fra?</label>
+              <select id="setting-reminders-source" name="reminders_source">
+                <option value="bridge" selected>Mac mini-bridge (anbefalet – samme data som Påmindelser-appen)</option>
+                <option value="caldav">iCloud via CalDAV (kræver app-specifikt password)</option>
+              </select>
+              <p class="muted small-copy">iCloud-påmindelser over IMAP er en <strong>anden database</strong> end den i Påmindelser-appen. Vælg derfor Mac mini-bridge, hvis du vil se præcis dine egne påmindelser.</p>
+              <label class="check-label"><input type="checkbox" name="reminders_enabled"> Aktivér synk med Påmindelser</label>
+
+              <fieldset class="stack-form" id="reminders-bridge-fields">
+                <legend class="visually-hidden">Mac mini-bridge</legend>
+                <label for="setting-bridge-url">Mac mini-adresse</label>
+                <input id="setting-bridge-url" name="reminders_bridge_url" type="text" maxlength="300" placeholder="192.168.1.100:8787" autocomplete="off">
+                <p class="muted small-copy">Find IP-adressen på Mac mini'en under Systemindstillinger → Wi-Fi → Detaljer. FamilyBridge lytter på port 8787.</p>
+                <label for="setting-bridge-token">API-token</label>
+                <input id="setting-bridge-token" name="reminders_bridge_token" type="password" autocomplete="new-password" placeholder="Kun nødvendigt, hvis det skal ændres">
+                <p class="muted small-copy">Find tokenet på Mac mini'en med: <code>/Applications/FamilyBridge.app/Contents/MacOS/FamilyBridge --token</code></p>
+              </fieldset>
+
+              <fieldset class="stack-form" id="reminders-caldav-fields">
+                <legend class="visually-hidden">iCloud CalDAV</legend>
+                <label for="setting-reminders-username">Apple-id</label>
+                <input id="setting-reminders-username" name="reminders_username" type="email" maxlength="320" autocomplete="username">
+                <label for="setting-reminders-password">App-specifikt password</label>
+                <input id="setting-reminders-password" name="reminders_app_password" type="password" autocomplete="new-password" placeholder="Kun nødvendigt, hvis det skal ændres">
+                <p class="muted small-copy">Brug dit Apple-id og et app-specifikt adgangskode (appleid.apple.com → Adgangskode → App-specifikke adgangskoder).</p>
+              </fieldset>
+
               <label for="setting-reminders-list">Påmindelsesliste</label>
               <div class="form-row align-end">
                 <select id="setting-reminders-list" name="reminders_list_href"></select>
                 <button class="button secondary" id="reminders-fetch-lists" type="button">Hent lister</button>
+                <button class="button secondary" id="reminders-test" type="button">Test forbindelse</button>
               </div>
               <input type="hidden" name="reminders_list_name" id="setting-reminders-list-name">
               <label for="setting-reminders-interval">Synk hver (minutter)</label><input id="setting-reminders-interval" name="reminders_sync_minutes" type="number" min="1" max="120" step="1">
@@ -252,22 +277,31 @@
                 <button class="button primary" type="submit">Gem Påmindelser</button>
                 <button class="button secondary" id="reminders-sync-now" type="button">Synk nu</button>
               </div>
-              <p class="muted small-copy" id="reminders-help">Brug dit Apple-id og et app-specifikt adgangskode (appleid.apple.com → Adgangskode → App-specifikke adgangskoder). Listen, du vælger her, bliver tovejssynkroniseret med checklisten på dashboardet.</p>
+              <p class="muted small-copy" id="reminders-help">Listen, du vælger her, bliver tovejssynkroniseret med checklisten på dashboardet.</p>
             </form>
           </article>
           <article class="panel settings-card wide">
             <div class="panel-heading"><div><p class="eyebrow">iCloud</p><h2>Delte note (Note på iPhone)</h2></div><span class="status-badge" id="notes-status">Ikke konfigureret</span></div>
             <form id="icloud-notes-form" class="stack-form">
+              <p class="muted small-copy">iCloud Notes kan <strong>ikke</strong> hentes via IMAP – Notes-mappen er altid tom. Brug derfor Mac mini-bridge, som læser den ægte Notes-database via Notes.app.</p>
               <label class="check-label"><input type="checkbox" name="notes_imap_enabled"> Aktivér visning af note fra iCloud</label>
-              <label for="setting-notes-username">Apple-id</label><input id="setting-notes-username" name="notes_imap_username" type="email" maxlength="320" autocomplete="username">
-              <label for="setting-notes-password">App-specifikt password</label><input id="setting-notes-password" name="notes_imap_app_password" type="password" autocomplete="new-password" placeholder="Kun nødvendigt, hvis det skal ændres">
-              <label for="setting-notes-host">IMAP-server</label><input id="setting-notes-host" name="notes_imap_host" type="text" maxlength="200">
-              <label for="setting-notes-title">Note-titel (præcis titel i iCloud)</label><input id="setting-notes-title" name="notes_imap_note_title" type="text" maxlength="200">
+              <label for="setting-notes-title">Note-titel (præcis titel i Notes-appen)</label><input id="setting-notes-title" name="notes_imap_note_title" type="text" maxlength="200">
+              <label for="setting-notes-source">Hvor skal noten hentes fra?</label>
+              <select id="setting-notes-source" name="notes_source">
+                <option value="bridge" selected>Mac mini-bridge via Notes.app (anbefalet)</option>
+                <option value="imap">iCloud via IMAP (giver ofte ingen noter)</option>
+              </select>
+              <fieldset class="stack-form" id="notes-imap-fields">
+                <legend class="visually-hidden">iCloud IMAP</legend>
+                <label for="setting-notes-username">Apple-id</label><input id="setting-notes-username" name="notes_imap_username" type="email" maxlength="320" autocomplete="username">
+                <label for="setting-notes-password">App-specifikt password</label><input id="setting-notes-password" name="notes_imap_app_password" type="password" autocomplete="new-password" placeholder="Kun nødvendigt, hvis det skal ændres">
+                <label for="setting-notes-host">IMAP-server</label><input id="setting-notes-host" name="notes_imap_host" type="text" maxlength="200">
+              </fieldset>
               <div class="form-row">
                 <button class="button primary" type="submit">Gem Note-indstillinger</button>
                 <button class="button secondary" id="notes-fetch-now" type="button">Hent note</button>
               </div>
-              <p class="muted small-copy" id="notes-help">Bemærk: Kun en note med nøjagtig samme titel i Notes-appen opdateres. Skrivning til iCloud sker via IMAP og er eksperimentel.</p>
+              <p class="muted small-copy" id="notes-help">Bemærk: Kun en note med nøjagtig samme titel i Notes-appen opdateres. Noten læses og skrives via FamilyBridge på Mac mini'en.</p>
             </form>
           </article>
           <article class="panel settings-card wide">

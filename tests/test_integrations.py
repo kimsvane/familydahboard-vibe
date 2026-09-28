@@ -1,6 +1,9 @@
 import asyncio
 import email
 import logging
+import os
+import pathlib
+import tempfile
 from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -626,6 +629,7 @@ def test_settings_redaction_hides_secrets(tmp_path):
             "reminders_username": "kim@icloud.com",
             "reminders_app_password": "super-hemmelig",
             "reminders_list_href": "/k/",
+            "notes_source": "imap",
             "notes_imap_enabled": "true",
             "notes_imap_username": "kim@icloud.com",
             "notes_imap_app_password": "note-hemmelig",
@@ -901,3 +905,410 @@ def test_stream_camera_mjpeg_yields_and_kills():
     chunks = asyncio.run(collect())
     assert chunks == [b"chunk-1"]
     proc.kill.assert_called_once()
+
+# --- Mac mini-bridge (EventKit) -------------------------------------------
+
+
+class mock_bridge_transport:
+    """Injects an httpx.MockTransport into every AsyncClient the app creates."""
+
+    def __init__(self, handler):
+        self.handler = handler
+        self._real = httpx.AsyncClient
+
+    def __call__(self, *args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(self.handler)
+        return self._real(*args, **kwargs)
+
+
+
+
+
+def test_normalize_bridge_url_accepts_forms():
+    from app.reminders_bridge import normalize_bridge_url
+
+    assert normalize_bridge_url("192.168.1.100:8787") == "http://192.168.1.100:8787"
+    assert normalize_bridge_url("http://mac-mini.local:8787/") == "http://mac-mini.local:8787"
+    assert normalize_bridge_url("https://mac.example.com/bridge/") == "https://mac.example.com/bridge"
+    with pytest.raises(ValueError):
+        normalize_bridge_url("")
+    with pytest.raises(ValueError):
+        normalize_bridge_url("ftp://mac:8787")
+
+
+def test_bridge_client_parses_lists_and_tasks():
+    from app.reminders_bridge import BridgeRemindersClient
+
+    client = BridgeRemindersClient("http://mac:8787", "secret")
+    assert client.configured is True
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/lists":
+            return httpx.Response(
+                200,
+                json={
+                    "lists": [
+                        {"id": "list-1", "name": "Familie", "color": "#ff0000"},
+                        {"name": "uden id"},
+                    ]
+                },
+            )
+        if request.url.path == "/todos":
+            assert request.url.params["list"] == "list-1"
+            return httpx.Response(
+                200,
+                json={
+                    "todos": [
+                        {
+                            "id": "t1",
+                            "title": "Køb mælk",
+                            "done": False,
+                            "due": "2026-10-01T00:00:00Z",
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404, json={"error": "nope"})
+
+    async def run():
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as http:
+            lists = await client.list_task_lists(http)
+            tasks = await client.list_tasks(http, "list-1")
+            return lists, tasks
+
+    lists, tasks = asyncio.run(run())
+    assert lists == [{"href": "list-1", "name": "Familie", "color": "#ff0000"}]
+    assert tasks[0]["external_id"] == "t1"
+    assert tasks[0]["summary"] == "Køb mælk"
+    assert tasks[0]["due"] == date(2026, 10, 1)
+
+
+def test_bridge_client_reports_auth_and_network_errors():
+    from app.reminders_bridge import BridgeError, BridgeRemindersClient
+
+    client = BridgeRemindersClient("http://mac:8787", "secret")
+
+    def unauthorized(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "Ugyldigt token"})
+
+    async def run_auth():
+        transport = httpx.MockTransport(unauthorized)
+        async with httpx.AsyncClient(transport=transport) as http:
+            await client.list_task_lists(http)
+
+    with pytest.raises(BridgeError) as error:
+        asyncio.run(run_auth())
+    assert "token" in str(error.value).lower()
+
+    offline = BridgeRemindersClient("http://mac:9999", "secret")
+
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    async def run_offline():
+        transport = httpx.MockTransport(boom)
+        async with httpx.AsyncClient(transport=transport) as http:
+            await offline.list_task_lists(http)
+
+    with pytest.raises(BridgeError):
+        asyncio.run(run_offline())
+
+
+def test_reminders_sync_uses_bridge_provider(tmp_path):
+    database = Database(tmp_path / "bridge-sync.db")
+    database.update_settings(
+        {
+            "reminders_enabled": "true",
+            "reminders_source": "bridge",
+            "reminders_bridge_url": "http://192.168.1.100:8787",
+            "reminders_bridge_token": "secret",
+            "reminders_list_href": "list-1",
+        }
+    )
+    sync = RemindersSync(database)
+    assert sync.source() == "bridge"
+    assert sync.provider().name == "bridge"
+    assert sync.configured() is True
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == "Bearer secret"
+        if request.url.path == "/todos":
+            return httpx.Response(
+                200,
+                json={
+                    "todos": [
+                        {"id": "A", "title": "Hent brød", "done": False, "due": "2026-10-02"},
+                        {"id": "B", "title": "Betalt", "done": True, "due": None},
+                    ]
+                },
+            )
+        return httpx.Response(404, json={"error": "nope"})
+
+    with patch("httpx.AsyncClient", new=mock_bridge_transport(handler)):
+        result = asyncio.run(sync.sync())
+    assert result["synced"] is True
+    assert result["count"] == 2
+    items = {item["external_id"]: item for item in database.list_checklist()}
+    assert items["A"]["text"] == "Hent brød"
+    assert items["A"]["due_date"] == "2026-10-02"
+    assert items["B"]["done"] is True
+    assert result == {"synced": True, "count": 2}
+    items = {item["external_id"]: item for item in database.list_checklist()}
+    assert items["A"]["text"] == "Hent brød"
+    assert items["A"]["due_date"] == "2026-10-02"
+    assert items["B"]["done"] is True
+
+
+def test_reminders_test_connection_flags_missing_bridge_access(tmp_path):
+    database = Database(tmp_path / "bridge-test.db")
+    database.update_settings(
+        {
+            "reminders_source": "bridge",
+            "reminders_bridge_url": "http://192.168.1.100:8787",
+            "reminders_bridge_token": "secret",
+            "reminders_list_href": "list-1",
+        }
+    )
+    sync = RemindersSync(database)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(
+                200,
+                json={"ok": True, "reminders_access": False, "authorization": "denied"},
+            )
+        return httpx.Response(200, json={"lists": []})
+
+    with patch("httpx.AsyncClient", new=mock_bridge_transport(handler)):
+        result = asyncio.run(sync.test_connection())
+    assert result["ok"] is False
+    assert "Påmindelser" in result["message"]
+
+
+def test_reminders_test_connection_reports_lists(tmp_path):
+    database = Database(tmp_path / "bridge-ok.db")
+    database.update_settings(
+        {
+            "reminders_source": "bridge",
+            "reminders_bridge_url": "http://192.168.1.100:8787",
+            "reminders_bridge_token": "secret",
+            "reminders_list_href": "list-1",
+        }
+    )
+    sync = RemindersSync(database)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"ok": True, "reminders_access": True})
+        if request.url.path == "/lists":
+            return httpx.Response(200, json={"lists": [{"id": "l1", "name": "Familie"}]})
+        return httpx.Response(404, json={"error": "nope"})
+
+    with patch("httpx.AsyncClient", new=mock_bridge_transport(handler)):
+        result = asyncio.run(sync.test_connection())
+    assert result["ok"] is True
+    assert "Familie" in result["message"]
+
+
+def test_notes_fall_back_to_bridge(tmp_path):
+    database = Database(tmp_path / "notes-bridge.db")
+    database.update_settings(
+        {
+            "notes_source": "bridge",
+            "notes_imap_enabled": "true",
+            "notes_imap_note_title": "FMD",
+            "reminders_bridge_url": "http://192.168.1.100:8787",
+            "reminders_bridge_token": "secret",
+        }
+    )
+    notes = ICloudNotes(database)
+    assert notes.use_bridge() is True
+    assert notes.configured() is True
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/notes"
+        assert request.url.params["title"] == "FMD"
+        return httpx.Response(
+            200,
+            json={
+                "notes": [
+                    {
+                        "id": "xcore",
+                        "title": "FMD",
+                        "text": "Husk at ringe til Bagedystet",
+                        "html": "<p>Husk at ringe til Bagedystet</p>",
+                    }
+                ]
+            },
+        )
+
+    with patch("httpx.AsyncClient", new=mock_bridge_transport(handler)):
+        result = asyncio.run(notes.fetch())
+    assert result["found"] is True
+    assert result["title"] == "FMD"
+    assert result["content"] == "Husk at ringe til Bagedystet"
+
+
+def test_notes_bridge_reports_missing_note(tmp_path):
+    database = Database(tmp_path / "notes-bridge-missing.db")
+    database.update_settings(
+        {
+            "notes_source": "bridge",
+            "notes_imap_enabled": "true",
+            "notes_imap_note_title": "Findes ikke",
+            "reminders_bridge_url": "http://192.168.1.100:8787",
+            "reminders_bridge_token": "secret",
+        }
+    )
+    notes = ICloudNotes(database)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"notes": []})
+
+    with patch("httpx.AsyncClient", new=mock_bridge_transport(handler)):
+        result = asyncio.run(notes.fetch())
+    assert result["found"] is False
+    assert "Notes.app" in result["debug"]
+
+
+def test_notes_bridge_save_reports_error(tmp_path):
+    database = Database(tmp_path / "notes-bridge-save.db")
+    database.update_settings(
+        {
+            "notes_source": "bridge",
+            "notes_imap_enabled": "true",
+            "notes_imap_note_title": "FMD",
+            "reminders_bridge_url": "http://192.168.1.100:8787",
+            "reminders_bridge_token": "secret",
+        }
+    )
+    notes = ICloudNotes(database)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"ok": False, "error": "Notes.app nægtede adgang"})
+
+    with patch("httpx.AsyncClient", new=mock_bridge_transport(handler)):
+        result = asyncio.run(notes.save("ny tekst"))
+    assert result["saved"] is False
+    assert "nægtede adgang" in result["error"]
+
+
+def test_settings_endpoint_hides_bridge_token_and_validates_source(tmp_path):
+    old_database = main.database
+    old_synchronizer = main.synchronizer.database
+    old_reminders = main.reminders
+    old_notes = main.icloud_notes
+    database = Database(tmp_path / "settings-bridge.db")
+    main.database = database
+    main.synchronizer.database = database
+    main.reminders = RemindersSync(database)
+    main.icloud_notes = ICloudNotes(database)
+    try:
+        with TestClient(main.app) as client:
+            headers = _auth_client(client)
+            response = client.patch(
+                "/api/settings",
+                headers=headers,
+                json={
+                    "reminders_source": "bridge",
+                    "reminders_bridge_url": "192.168.1.100:8787",
+                    "reminders_bridge_token": "hemmeligt-token",
+                    "reminders_enabled": True,
+                },
+            )
+            assert response.status_code == 200
+            settings = response.json()["settings"]
+            assert settings["reminders_source"] == "bridge"
+            assert settings["reminders_bridge_url"] == "http://192.168.1.100:8787"
+            assert settings["reminders_bridge_token"] == ""
+            assert "hemmeligt-token" not in str(settings)
+            assert settings["reminders_bridge_configured"] is True
+
+            missing = client.patch(
+                "/api/settings", headers=headers, json={"reminders_source": "bridge", "reminders_bridge_url": ""}
+            )
+            assert missing.status_code == 422
+    finally:
+        main.database = old_database
+        main.synchronizer.database = old_synchronizer
+        main.reminders = old_reminders
+        main.icloud_notes = old_notes
+
+
+def test_camera_requires_password():
+    from app.reolink import ReolinkCamera, ReolinkError
+
+    camera = ReolinkCamera(
+        {
+            "id": 1,
+            "name": "Indkørsel",
+            "host": "192.168.1.219",
+            "username": "admin",
+            "password": "",
+            "channel": 0,
+        }
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"cmd": "Login", "code": 1})
+
+    async def run():
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as http:
+            await camera._ensure_token(http)
+
+    with pytest.raises(ReolinkError) as error:
+        asyncio.run(run())
+    assert "password" in str(error.value).lower()
+
+
+def test_lists_can_be_discovered_before_a_list_is_selected(tmp_path):
+    database = Database(tmp_path / "bridge-first-list.db")
+    database.update_settings(
+        {
+            "reminders_source": "bridge",
+            "reminders_bridge_url": "http://192.168.1.100:8787",
+            "reminders_bridge_token": "secret",
+        }
+    )
+    sync = RemindersSync(database)
+    assert sync.configured() is False  # no list chosen yet
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"lists": [{"id": "l1", "name": "Familie"}, {"id": "l2", "name": "Indkøb"}]})
+
+    with patch("httpx.AsyncClient", new=mock_bridge_transport(handler)):
+        lists, error = asyncio.run(sync.discover_lists())
+    assert error is None
+    assert [item["name"] for item in lists] == ["Familie", "Indkøb"]
+
+
+def test_list_discovery_without_credentials_explains_what_is_missing(tmp_path):
+    database = Database(tmp_path / "bridge-no-credentials.db")
+    database.update_settings({"reminders_source": "bridge"})
+    sync = RemindersSync(database)
+
+    lists, error = asyncio.run(sync.discover_lists())
+    assert lists == []
+    assert "token" in error
+    result = asyncio.run(sync.test_connection())
+    assert result["ok"] is False
+    assert "token" in result["message"]
+
+
+def test_http_client_logging_is_not_debug():
+    import logging
+    import subprocess
+    import sys
+
+    script = (
+        "import logging, app.main;"
+        "print(logging.getLogger('httpx').level, logging.getLogger('httpcore').level)"
+    )
+    env = dict(os.environ, FAMILY_DASHBOARD_PASSWORD="test", FAMILY_DASHBOARD_DATA_DIR=tempfile.mkdtemp())
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, env=env, cwd=str(pathlib.Path(__file__).resolve().parents[1])
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == [str(logging.WARNING), str(logging.WARNING)]

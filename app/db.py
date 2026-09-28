@@ -17,6 +17,9 @@ DEFAULT_SETTINGS = {
     "calendar_refresh_minutes": "15",
     "weather_enabled": "true",
     "reminders_enabled": "false",
+    "reminders_source": "caldav",
+    "reminders_bridge_url": "",
+    "reminders_bridge_token": "",
     "reminders_username": "",
     "reminders_app_password": "",
     "reminders_list_name": "",
@@ -24,6 +27,7 @@ DEFAULT_SETTINGS = {
     "reminders_sync_minutes": "5",
     "reminders_last_sync": "",
     "reminders_last_error": "",
+    "notes_source": "bridge",
     "notes_imap_enabled": "false",
     "notes_imap_username": "",
     "notes_imap_app_password": "",
@@ -813,5 +817,6 @@ class Database:
             if key in item:
                 item[key] = bool(item[key])
         if "password" in item:
+            item["has_password"] = bool(item["password"])
             item["password"] = ""
         return item

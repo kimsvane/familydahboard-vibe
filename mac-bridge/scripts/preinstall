@@ -1,0 +1,14 @@
+#!/bin/bash
+# Førinstallation: fjerner en fejlagtig tidligere installation som lå FamilyBridge
+# som LaunchDaemon (kræver login-bruger for EventKit, så det gav ingen adgang).
+set -uo pipefail
+
+BUNDLE_ID="dk.ssvanefamily.bridge"
+LEGACY="/Library/LaunchDaemons/${BUNDLE_ID}.plist"
+
+if [ -f "$LEGACY" ]; then
+  echo "FamilyBridge: fjerner gammel LaunchDaemon $LEGACY"
+  launchctl bootout "system/${BUNDLE_ID}" >/dev/null 2>&1 || true
+  rm -f "$LEGACY"
+fi
+exit 0

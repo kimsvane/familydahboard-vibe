@@ -139,11 +139,15 @@ class SettingsUpdate(Model):
     weather_enabled: Optional[bool] = None
     theme: Optional[str] = Field(default=None, max_length=40)
     reminders_enabled: Optional[bool] = None
+    reminders_source: Optional[Literal["caldav", "bridge"]] = None
+    reminders_bridge_url: Optional[str] = Field(default=None, max_length=300)
+    reminders_bridge_token: Optional[str] = Field(default=None, max_length=200)
     reminders_username: Optional[str] = Field(default=None, max_length=320)
     reminders_app_password: Optional[str] = Field(default=None, max_length=200)
     reminders_list_name: Optional[str] = Field(default=None, max_length=200)
     reminders_list_href: Optional[str] = Field(default=None, max_length=1000)
     reminders_sync_minutes: Optional[int] = Field(default=None, ge=1, le=120)
+    notes_source: Optional[Literal["bridge", "imap"]] = None
     notes_imap_enabled: Optional[bool] = None
     notes_imap_username: Optional[str] = Field(default=None, max_length=320)
     notes_imap_app_password: Optional[str] = Field(default=None, max_length=200)

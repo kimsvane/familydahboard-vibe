@@ -16,3 +16,7 @@ htmlcov/
 *.egg-info/
 clients/linux/node_modules/
 clients/linux/dist/
+
+# Swift-bygeartefakter (genceres med mac-bridge/build.sh)
+mac-bridge/build/
+mac-bridge/*.pkg

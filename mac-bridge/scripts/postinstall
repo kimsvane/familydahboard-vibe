@@ -1,0 +1,49 @@
+#!/bin/bash
+# Efterinstallering: aktiverer LaunchAgent for den bruger, der er logget ind.
+set -euo pipefail
+
+BUNDLE_ID="dk.ssvanefamily.bridge"
+EXECUTABLE="/Applications/FamilyBridge.app/Contents/MacOS/FamilyBridge"
+PLIST_SOURCE="/Library/Application Support/FamilyBridge/LaunchAgent.plist.template"
+
+CONSOLE_USER="$(stat -f%Su /dev/console 2>/dev/null || true)"
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ]; then
+  echo "FamilyBridge: ingen bruger er logget ind. Log ind, og kør"
+  echo "  cp '$PLIST_SOURCE' ~/Library/LaunchAgents/${BUNDLE_ID}.plist"
+  echo "  launchctl bootstrap gui/\$(id -u) ~/Library/LaunchAgents/${BUNDLE_ID}.plist"
+  echo "eller genstart FamilyBridge, når du er logget ind."
+  exit 0
+fi
+
+CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+AGENT_DIR="/Users/${CONSOLE_USER}/Library/LaunchAgents"
+AGENT_PLIST="${AGENT_DIR}/${BUNDLE_ID}.plist"
+
+echo "FamilyBridge: opsætter LaunchAgent for $CONSOLE_USER (uid $CONSOLE_UID)"
+
+mkdir -p "$AGENT_DIR"
+cp "$PLIST_SOURCE" "$AGENT_PLIST"
+chown "$CONSOLE_USER":staff "$AGENT_PLIST"
+chmod 644 "$AGENT_PLIST"
+
+# Generér config/token som den konkrete bruger, så han ejer filen.
+if [ ! -f "/Users/${CONSOLE_USER}/Library/Application Support/FamilyBridge/config.json" ]; then
+  launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" "$EXECUTABLE" --token >/dev/null 2>&1 || true
+fi
+
+launchctl bootout "gui/${CONSOLE_UID}/${BUNDLE_ID}" >/dev/null 2>&1 || true
+launchctl bootstrap "gui/${CONSOLE_UID}" "$AGENT_PLIST" >/dev/null 2>&1 \
+  || launchctl load -w "$AGENT_PLIST" >/dev/null 2>&1 || true
+
+launchctl kickstart -k "gui/${CONSOLE_UID}/${BUNDLE_ID}" >/dev/null 2>&1 || true
+
+TOKEN="$(launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" "$EXECUTABLE" --token 2>/dev/null || true)"
+if [ -n "$TOKEN" ]; then
+  echo
+  echo "  FamilyBridge-token: $TOKEN"
+  echo "  Indsæt det i Family Dashboard (Indstillinger > Påmindelser > Mac mini)."
+  echo
+fi
+
+echo "FamilyBridge er klar. Godkend adgang under Systemindstillinger > Anonymitet og sikkerhed > Påmindelser."
+exit 0

@@ -12,6 +12,7 @@ import httpx
 from icalendar import Calendar, Todo
 
 from .db import Database
+from .reminders_bridge import BridgeError, BridgeRemindersClient
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,10 @@ ICLOUD_USER_AGENT = (
 )
 
 APPLE_ID_DOMAINS = ("icloud.com", "me.com", "mac.com")
+
+SOURCE_CALDAV = "caldav"
+SOURCE_BRIDGE = "bridge"
+REMINDER_SOURCES = (SOURCE_CALDAV, SOURCE_BRIDGE)
 
 _STATUS_OPEN = "NEEDS-ACTION"
 _STATUS_DONE = "COMPLETED"
@@ -499,29 +504,64 @@ def _find_calendar_data(xml: bytes) -> list[tuple[str, bytes]]:
     return results
 
 
-class RemindersSync:
-    """Two-way bridge between the dashboard checklist and an iCloud Reminders list."""
+def _due_iso(value: Any) -> Optional[str]:
+    """Providers may return a date, datetime or ISO string; the DB wants a string."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)[:10] or None
+
+
+class RemindersProvider:
+    """Common interface for the two ways the dashboard can reach Apple Reminders."""
+
+    name = "?"
+
+    def configured(self) -> bool:  # pragma: no cover - interface
+        raise NotImplementedError
+
+    def credentials_configured(self) -> bool:
+        """Backend login works, but no task list has been picked yet."""
+        raise NotImplementedError  # pragma: no cover - interface
+
+    async def discover_lists(self) -> list[dict[str, str]]:
+        raise NotImplementedError  # pragma: no cover - interface
+
+    async def list_tasks(self, list_id: str) -> list[dict[str, Any]]:
+        raise NotImplementedError  # pragma: no cover - interface
+
+    async def create(self, list_id: str, text: str, due: Optional[date]) -> str:
+        raise NotImplementedError  # pragma: no cover - interface
+
+    async def update(
+        self,
+        list_id: str,
+        item: dict[str, Any],
+        text: str,
+        done: bool,
+        due: Optional[date],
+    ) -> None:
+        raise NotImplementedError  # pragma: no cover - interface
+
+    async def delete(self, list_id: str, item: dict[str, Any]) -> None:
+        raise NotImplementedError  # pragma: no cover - interface
+
+
+class CalDAVRemindersProvider(RemindersProvider):
+    """Talte til iCloud via CalDAV.
+
+    Bemærk: iCloud Reminders over IMAP er en ANDEN database end den i
+    Påmindelser-appen på Apple-enheder. CalDAV er den rigtige fjernadgang,
+    men kræver en app-specifik adgangskode.
+    """
+
+    name = SOURCE_CALDAV
 
     def __init__(self, database: Database) -> None:
         self.database = database
-        self._lock: Optional[asyncio.Lock] = None
-
-    def _lock_instance(self) -> asyncio.Lock:
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        return self._lock
-
-    def configured(self) -> bool:
-        settings = self.database.get_settings()
-        return bool(
-            settings.get("reminders_username")
-            and settings.get("reminders_app_password")
-            and settings.get("reminders_list_href")
-        )
-
-    def enabled(self) -> bool:
-        settings = self.database.get_settings()
-        return settings.get("reminders_enabled", "false").lower() == "true" and self.configured()
 
     def _auth_candidates(self) -> list[dict[str, str]]:
         settings = self.database.get_settings()
@@ -549,8 +589,11 @@ class RemindersSync:
             extra_auth=extras,
         )
 
-    def _list_href(self) -> str:
-        return self.database.get_setting("reminders_list_href") or ""
+    def _todo_url(self, list_id: str, external_id: str) -> str:
+        collection = urljoin(self._client().base_url, list_id)
+        if not collection.endswith("/"):
+            collection += "/"
+        return urljoin(collection, f"{external_id}.ics")
 
     def _remember_resolved(self, client: CalDAVRemindersClient) -> None:
         resolved_user = client.resolved_username
@@ -564,23 +607,167 @@ class RemindersSync:
         if updates:
             self.database.update_settings(updates)
 
-    def _todo_url(self, uid: str) -> str:
-        collection = urljoin(self._client().base_url, self._list_href())
-        if not collection.endswith("/"):
-            collection += "/"
-        return urljoin(collection, f"{uid}.ics")
+    def credentials_configured(self) -> bool:
+        settings = self.database.get_settings()
+        return bool(settings.get("reminders_username") and settings.get("reminders_app_password"))
 
-    async def discover_lists(self) -> tuple[list[dict[str, str]], Optional[str]]:
-        try:
-            async with httpx.AsyncClient() as client:
-                dav = self._client()
-                await dav.prepare(client)
-                lists = await dav.list_task_lists(client)
-                self._remember_resolved(dav)
-                return lists, None
-        except (CalDAVError, httpx.HTTPError) as exc:
-            logger.warning("Reminders discovery failed: %s", exc)
-            return [], str(exc)
+    def configured(self) -> bool:
+        return self.credentials_configured() and bool(
+            self.database.get_settings().get("reminders_list_href")
+        )
+
+    async def discover_lists(self) -> list[dict[str, str]]:
+        async with httpx.AsyncClient() as client:
+            dav = self._client()
+            await dav.prepare(client)
+            lists = await dav.list_task_lists(client)
+            self._remember_resolved(dav)
+            return lists
+
+    async def list_tasks(self, list_id: str) -> list[dict[str, Any]]:
+        async with httpx.AsyncClient() as client:
+            dav = self._client()
+            await dav.prepare(client)
+            tasks = await dav.list_tasks(client, list_id)
+            self._remember_resolved(dav)
+            return tasks
+
+    async def create(self, list_id: str, text: str, due: Optional[date]) -> str:
+        async with httpx.AsyncClient() as client:
+            dav = self._client()
+            await dav.prepare(client)
+            uid = await dav.create_todo(client, list_id, text, due)
+            self._remember_resolved(dav)
+            return uid
+
+    async def update(
+        self,
+        list_id: str,
+        item: dict[str, Any],
+        text: str,
+        done: bool,
+        due: Optional[date],
+    ) -> None:
+        async with httpx.AsyncClient() as client:
+            dav = self._client()
+            await dav.prepare(client)
+            await dav.update_todo(
+                client,
+                self._todo_url(list_id, item["external_id"]),
+                text,
+                done,
+                due=due,
+            )
+            self._remember_resolved(dav)
+
+    async def delete(self, list_id: str, item: dict[str, Any]) -> None:
+        async with httpx.AsyncClient() as client:
+            dav = self._client()
+            await dav.prepare(client)
+            await dav.delete_todo(client, self._todo_url(list_id, item["external_id"]))
+            self._remember_resolved(dav)
+
+
+class BridgeRemindersProvider(RemindersProvider):
+    """Talte til en Mac mini med FamilyBridge (EventKit).
+
+    EventKit læser den ÆGTE lokale Påmindelser-database – altså præcis de
+    påmindelser, der vises i Påmindelser-appen på alle Apple-enheder.
+    """
+
+    name = SOURCE_BRIDGE
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def client(self) -> BridgeRemindersClient:
+        settings = self.database.get_settings()
+        return BridgeRemindersClient(
+            settings.get("reminders_bridge_url") or "",
+            settings.get("reminders_bridge_token") or "",
+        )
+
+    def credentials_configured(self) -> bool:
+        settings = self.database.get_settings()
+        return bool(settings.get("reminders_bridge_url") and settings.get("reminders_bridge_token"))
+
+    def configured(self) -> bool:
+        return self.credentials_configured() and bool(
+            self.database.get_settings().get("reminders_list_href")
+        )
+
+    async def health(self) -> dict[str, Any]:
+        async with httpx.AsyncClient() as client:
+            return await self.client().health(client)
+
+    async def discover_lists(self) -> list[dict[str, str]]:
+        async with httpx.AsyncClient() as client:
+            return await self.client().list_task_lists(client)
+
+    async def list_tasks(self, list_id: str) -> list[dict[str, Any]]:
+        async with httpx.AsyncClient() as client:
+            return await self.client().list_tasks(client, list_id)
+
+    async def create(self, list_id: str, text: str, due: Optional[date]) -> str:
+        async with httpx.AsyncClient() as client:
+            return await self.client().create_todo(client, list_id, text, due)
+
+    async def update(
+        self,
+        list_id: str,
+        item: dict[str, Any],
+        text: str,
+        done: bool,
+        due: Optional[date],
+    ) -> None:
+        async with httpx.AsyncClient() as client:
+            await self.client().update_todo(client, item["external_id"], text, done, due=due)
+
+    async def delete(self, list_id: str, item: dict[str, Any]) -> None:
+        async with httpx.AsyncClient() as client:
+            await self.client().delete_todo(client, item["external_id"])
+
+
+class RemindersSync:
+    """Two-way bridge between the dashboard checklist and Apple Reminders.
+
+    Two backends are supported:
+      * caldav  – direct to iCloud (needs an app-specific password)
+      * bridge – via a Mac mini running FamilyBridge (EventKit, same data as
+                 the Reminders app on every Apple device)
+    """
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+        self._lock: Optional[asyncio.Lock] = None
+
+    def _lock_instance(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
+    # --- backend selection -------------------------------------------------
+
+    def source(self) -> str:
+        value = (self.database.get_setting("reminders_source") or SOURCE_CALDAV).strip().lower()
+        return value if value in REMINDER_SOURCES else SOURCE_CALDAV
+
+    def provider(self) -> RemindersProvider:
+        if self.source() == SOURCE_BRIDGE:
+            return BridgeRemindersProvider(self.database)
+        return CalDAVRemindersProvider(self.database)
+
+    def _list_id(self) -> str:
+        return self.database.get_setting("reminders_list_href") or ""
+
+    # --- lifecycle ---------------------------------------------------------
+
+    def configured(self) -> bool:
+        return self.provider().configured()
+
+    def enabled(self) -> bool:
+        settings = self.database.get_settings()
+        return settings.get("reminders_enabled", "false").lower() == "true" and self.configured()
 
     async def run_periodically(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
@@ -595,21 +782,59 @@ class RemindersSync:
             except asyncio.TimeoutError:
                 pass
 
+    # --- operations --------------------------------------------------------
+
+    async def discover_lists(self) -> tuple[list[dict[str, str]], Optional[str]]:
+        if not self.provider().credentials_configured():
+            if self.source() == SOURCE_BRIDGE:
+                return [], "Indtast Mac'ens adresse og token for Mac mini-bridge"
+            return [], "Indtast brugernavn og app-adgangskode for iCloud påmindelser"
+        try:
+            return await self.provider().discover_lists(), None
+        except (CalDAVError, BridgeError, httpx.HTTPError) as exc:
+            logger.warning("Reminders discovery failed: %s", exc)
+            return [], str(exc)
+
+    async def test_connection(self) -> dict[str, Any]:
+        """Validates the configured backend and reports what it can see."""
+        provider = self.provider()
+        if not provider.credentials_configured():
+            message = "Påmindelser er ikke konfigureret endnu"
+            if provider.name == SOURCE_BRIDGE:
+                message = "Indtast Mac'ens adresse og token for Mac mini-bridge"
+            return {"ok": False, "message": message}
+        try:
+            if provider.name == SOURCE_BRIDGE:
+                health = await BridgeRemindersProvider(self.database).health()
+                if not health.get("reminders_access"):
+                    return {
+                        "ok": False,
+                        "message": "FamilyBridge svarer, men mangler adgang til Påmindelser. "
+                        "Godkend under Systemindstillinger > Anonymitet og sikkerhed > Påmindelser.",
+                    }
+            lists = await provider.discover_lists()
+        except (CalDAVError, BridgeError, httpx.HTTPError) as exc:
+            return {"ok": False, "message": str(exc)}
+        names = ", ".join(item.get("name", "") for item in lists[:6]) or "ingen lister"
+        return {
+            "ok": True,
+            "message": f"Forbindelsen virker – {len(lists)} lister fundet: {names}",
+        }
+
     async def sync(self) -> dict[str, Any]:
         if not self.enabled():
             return {"synced": False, "count": 0, "reason": "disabled"}
+        provider = self.provider()
+        list_id = self._list_id()
         async with self._lock_instance():
             try:
-                async with httpx.AsyncClient() as client:
-                    dav = self._client()
-                    await dav.prepare(client)
-                    tasks = await dav.list_tasks(client, self._list_href())
+                tasks = await provider.list_tasks(list_id)
                 for index, task in enumerate(tasks):
                     self.database.upsert_icloud_checklist_item(
                         external_id=task["external_id"],
                         text=task["summary"] or "Uden titel",
                         done=task["done"],
-                        due_date=task["due"],
+                        due_date=_due_iso(task.get("due")),
                         sort_order=index,
                     )
                 self.database.remove_icloud_checklist_missing(
@@ -621,24 +846,19 @@ class RemindersSync:
                         "reminders_last_error": "",
                     }
                 )
-                self._remember_resolved(dav)
                 return {"synced": True, "count": len(tasks)}
-            except (CalDAVError, httpx.HTTPError) as exc:
+            except (CalDAVError, BridgeError, httpx.HTTPError) as exc:
                 logger.warning("Reminders sync failed: %s", exc)
-                self.database.update_settings(
-                    {"reminders_last_error": str(exc)[:500]}
-                )
+                self.database.update_settings({"reminders_last_error": str(exc)[:500]})
                 return {"synced": False, "count": 0, "error": str(exc)}
 
     async def create(self, text: str, due: Optional[date]) -> dict[str, Any]:
+        provider = self.provider()
+        list_id = self._list_id()
         async with self._lock_instance():
-            async with httpx.AsyncClient() as client:
-                dav = self._client()
-                await dav.prepare(client)
-                uid = await dav.create_todo(client, self._list_href(), text, due)
-                self._remember_resolved(dav)
+            external_id = await provider.create(list_id, text, due)
             return self.database.upsert_icloud_checklist_item(
-                external_id=uid,
+                external_id=external_id,
                 text=text,
                 done=False,
                 due_date=due.isoformat() if due else None,
@@ -649,24 +869,16 @@ class RemindersSync:
         text = values.get("text", item["text"])
         done = bool(values.get("done", item["done"]))
         due = values.get("due_date", item.get("due_date"))
-        due_date = None
+        due_date: Optional[date] = None
         if due:
             try:
                 due_date = date.fromisoformat(due)
             except ValueError:
                 due_date = None
+        provider = self.provider()
+        list_id = self._list_id()
         async with self._lock_instance():
-            async with httpx.AsyncClient() as client:
-                dav = self._client()
-                await dav.prepare(client)
-                await dav.update_todo(
-                    client,
-                    self._todo_url(item["external_id"]),
-                    text,
-                    done,
-                    due=due_date,
-                )
-                self._remember_resolved(dav)
+            await provider.update(list_id, item, text, done, due_date)
         return self.database.upsert_icloud_checklist_item(
             external_id=item["external_id"],
             text=text,
@@ -676,10 +888,8 @@ class RemindersSync:
         )
 
     async def delete(self, item: dict[str, Any]) -> None:
+        provider = self.provider()
+        list_id = self._list_id()
         async with self._lock_instance():
-            async with httpx.AsyncClient() as client:
-                dav = self._client()
-                await dav.prepare(client)
-                await dav.delete_todo(client, self._todo_url(item["external_id"]))
-                self._remember_resolved(dav)
+            await provider.delete(list_id, item)
         self.database.delete_checklist_item(item["id"])

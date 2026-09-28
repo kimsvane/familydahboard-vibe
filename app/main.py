@@ -17,6 +17,7 @@ from .config import get_settings
 from .db import Database
 from .icloud_notes import ICloudNotes
 from .icloud_reminders import RemindersSync
+from .reminders_bridge import normalize_bridge_url
 from .reolink import (
     STREAM_BOUNDARY,
     CameraMonitor,
@@ -63,6 +64,12 @@ from .sync import CalendarSynchronizer
 from .version import BUILD_ID, VERSION, banner, build_info, mark_started
 
 logging.basicConfig(level=os.getenv("FAMILY_DASHBOARD_LOG_LEVEL", "INFO"))
+# httpx/httpcore dumps every request and response body at DEBUG, which drowns the
+# useful log. Keep them at WARNING unless the operator explicitly lowers them.
+for _noisy in ("httpx", "httpcore", "hpack", "h2", "httpcore._async.http11"):
+    logging.getLogger(_noisy).setLevel(
+        os.getenv("FAMILY_DASHBOARD_HTTP_LOG_LEVEL", "WARNING").upper()
+    )
 logger = logging.getLogger("family-dashboard")
 settings = get_settings()
 database = Database(
@@ -80,13 +87,40 @@ reminders = RemindersSync(database)
 icloud_notes = ICloudNotes(database)
 camera_monitor = CameraMonitor(database)
 
-SECRET_SETTING_KEYS = {"reminders_app_password", "notes_imap_app_password"}
+SECRET_SETTING_KEYS = {
+    "reminders_app_password",
+    "notes_imap_app_password",
+    "reminders_bridge_token",
+}
 
 
 def public_settings(raw: dict[str, Any]) -> dict[str, Any]:
     public = dict(raw)
-    public["reminders_configured"] = bool(raw.get("reminders_app_password"))
-    public["notes_imap_configured"] = bool(raw.get("notes_imap_app_password"))
+    source = (raw.get("reminders_source") or "caldav").lower()
+    public["reminders_source"] = source
+    if source == "bridge":
+        public["reminders_configured"] = bool(
+            raw.get("reminders_bridge_url")
+            and raw.get("reminders_bridge_token")
+            and raw.get("reminders_list_href")
+        )
+    else:
+        public["reminders_configured"] = bool(
+            raw.get("reminders_app_password") and raw.get("reminders_list_href")
+        )
+    public["reminders_bridge_configured"] = bool(
+        raw.get("reminders_bridge_url") and raw.get("reminders_bridge_token")
+    )
+    notes_source = (raw.get("notes_source") or "bridge").lower()
+    public["notes_source"] = notes_source
+    public["notes_imap_configured"] = bool(
+        raw.get("notes_imap_note_title")
+        and (
+            (raw.get("reminders_bridge_url") and raw.get("reminders_bridge_token"))
+            if notes_source == "bridge"
+            else raw.get("notes_imap_app_password")
+        )
+    )
     for key in SECRET_SETTING_KEYS:
         public[key] = ""
     return public
@@ -620,6 +654,22 @@ async def update_settings_route(payload: SettingsUpdate) -> dict[str, Any]:
     for key in SECRET_SETTING_KEYS:
         if key in values and not values[key]:
             del values[key]
+    if "reminders_bridge_url" in values:
+        try:
+            values["reminders_bridge_url"] = normalize_bridge_url(values["reminders_bridge_url"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if values.get("reminders_source") == "bridge":
+        missing = [
+            key
+            for key in ("reminders_bridge_url", "reminders_bridge_token")
+            if not (values.get(key) or database.get_setting(key))
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail="Mac mini-bridge kræver både adresse og token",
+            )
     updated = database.update_settings(values)
     if "log_level" in values:
         apply_log_level(database)
@@ -637,6 +687,11 @@ async def create_camera(payload: CameraCreate) -> dict[str, Any]:
         host = normalize_host(payload.host)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not payload.password:
+        raise HTTPException(
+            status_code=422,
+            detail="Kameraet kræver en adgangskode. Reolink afviser login uden den.",
+        )
     return {
         "camera": database.create_camera(
             payload.name.strip(),
@@ -757,6 +812,11 @@ async def reminder_lists() -> dict[str, Any]:
 @app.post("/api/reminders/sync", dependencies=[Depends(require_auth)])
 async def sync_reminders() -> dict[str, Any]:
     return await reminders.sync()
+
+
+@app.post("/api/reminders/test", dependencies=[Depends(require_auth)])
+async def test_reminders() -> dict[str, Any]:
+    return await reminders.test_connection()
 
 
 @app.get("/api/notes/icloud", dependencies=[Depends(require_auth)])

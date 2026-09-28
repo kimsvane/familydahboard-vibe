@@ -9,7 +9,10 @@ from email.message import Message
 from html.parser import HTMLParser
 from typing import Any, Optional
 
+import httpx
+
 from .db import Database
+from .reminders_bridge import BridgeError, BridgeRemindersClient
 
 logger = logging.getLogger(__name__)
 
@@ -108,13 +111,27 @@ class ICloudNotes:
     def __init__(self, database: Database) -> None:
         self.database = database
 
+    def _bridge(self) -> BridgeRemindersClient:
+        settings = self.database.get_settings()
+        return BridgeRemindersClient(
+            settings.get("reminders_bridge_url") or "",
+            settings.get("reminders_bridge_token") or "",
+        )
+
+    def use_bridge(self) -> bool:
+        """iCloud Notes are not exposed over IMAP – the bridge reads them via Notes.app."""
+        settings = self.database.get_settings()
+        if (settings.get("notes_source") or "bridge").lower() != "bridge":
+            return False
+        return bool(settings.get("reminders_bridge_url") and settings.get("reminders_bridge_token"))
+
     def configured(self) -> bool:
         settings = self.database.get_settings()
-        return bool(
-            settings.get("notes_imap_username")
-            and settings.get("notes_imap_app_password")
-            and settings.get("notes_imap_note_title")
-        )
+        if not settings.get("notes_imap_note_title"):
+            return False
+        if self.use_bridge():
+            return True
+        return bool(settings.get("notes_imap_username") and settings.get("notes_imap_app_password"))
 
     def enabled(self) -> bool:
         settings = self.database.get_settings()
@@ -162,6 +179,7 @@ class ICloudNotes:
         typ, select_data = connection.select(folder)
         if typ != "OK":
             raise NotesError("Kunne ikke åbne Notes-mappen")
+        _ = select_data
         if select_data and select_data[0]:
             logger.debug(
                 "Mappe %r åbnet: %s", folder, select_data[0].decode(errors="replace")
@@ -222,10 +240,12 @@ class ICloudNotes:
         parts: list[str] = [f"Søgte efter titlen {title!r} i {len(folders)} Notes-mappe(r)."]
         for folder in folders:
             try:
-                typ, _ = connection.select(folder, readonly=True)
+                typ, select_data = connection.select(folder, readonly=True)
                 if typ != "OK":
                     parts.append(f"{folder}: kunne ikke åbnes")
                     continue
+                if select_data and select_data[0]:
+                    parts.append(f"{folder}: {select_data[0].decode(errors='replace').strip()} beskeder i mappen")
                 typ, data = connection.uid("search", None, "ALL")
                 if typ != "OK" or not data or not data[0]:
                     parts.append(f"{folder}: tom mappe")
@@ -260,7 +280,10 @@ class ICloudNotes:
                 "last_error": self.database.get_setting("notes_imap_last_error") or "",
             }
         try:
-            result = await asyncio.to_thread(self._fetch_sync)
+            if self.use_bridge():
+                result = await self._fetch_bridge()
+            else:
+                result = await asyncio.to_thread(self._fetch_sync)
             self.database.update_settings(
                 {"notes_imap_last_sync": result.get("fetched_at", ""), "notes_imap_last_error": ""}
             )
@@ -287,6 +310,53 @@ class ICloudNotes:
                 "content": "",
                 "error": str(exc),
             }
+
+    async def _fetch_bridge(self) -> dict[str, Any]:
+        title = self.database.get_setting("notes_imap_note_title") or ""
+        client = self._bridge()
+        try:
+            async with httpx.AsyncClient() as http:
+                notes = await client.notes(http, title=title)
+        except (BridgeError, httpx.HTTPError) as exc:
+            raise NotesError(str(exc)) from exc
+        if not notes:
+            return {
+                "enabled": True,
+                "configured": True,
+                "found": False,
+                "title": title,
+                "content": "",
+                "error": "",
+                "debug": "Notes.app leverede ingen noter. Tjek at titlen matcher nøjagtig, "
+                "og at FamilyBridge har adgang under Systemindstillinger > Anonymitet og "
+                "sikkerhed > Automatisering.",
+                "fetched_at": _utc_now(),
+            }
+        note = notes[0]
+        content = str(note.get("text") or "").strip()
+        if not content:
+            content = html_to_text(str(note.get("html") or ""))
+        return {
+            "enabled": True,
+            "configured": True,
+            "found": True,
+            "title": str(note.get("title") or title),
+            "content": content,
+            "error": "",
+            "fetched_at": _utc_now(),
+        }
+
+    async def _save_bridge(self, content: str) -> dict[str, Any]:
+        title = (self.database.get_setting("notes_imap_note_title") or "").strip()
+        if not title:
+            raise NotesError("Der er ikke valgt en notetitel")
+        client = self._bridge()
+        try:
+            async with httpx.AsyncClient() as http:
+                await client.save_note(http, title, content)
+        except (BridgeError, httpx.HTTPError) as exc:
+            raise NotesError(str(exc)) from exc
+        return {"saved": True, "title": title, "content": content}
 
     def _fetch_sync(self) -> dict[str, Any]:
         title = self.database.get_setting("notes_imap_note_title") or ""
@@ -331,7 +401,10 @@ class ICloudNotes:
         if not self.enabled():
             return {"saved": False, "error": "disabled"}
         try:
-            message = await asyncio.to_thread(self._save_sync, content)
+            if self.use_bridge():
+                message = await self._save_bridge(content)
+            else:
+                message = await asyncio.to_thread(self._save_sync, content)
             self.database.update_settings(
                 {"notes_imap_last_sync": _utc_now(), "notes_imap_last_error": ""}
             )

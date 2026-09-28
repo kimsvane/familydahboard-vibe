@@ -346,25 +346,39 @@ function renderSettings(summary) {
   const schoolCount = sources.filter((source) => source.kind === "school").length;
   $("#settings-status").textContent = `${calendarCount} kalendere · ${schoolCount} skoleskemaer · ${summary.frames?.length || 0} widgets · ${summary.birthdays?.length || 0} fødselsdage · ${state.cameras.length} kameraer`;
   const remindersForm = $("#icloud-reminders-form");
+  const remindersSource = settings.reminders_source === "caldav" ? "caldav" : "bridge";
+  remindersForm.elements.reminders_source.value = remindersSource;
   remindersForm.elements.reminders_enabled.checked = settings.reminders_enabled === true || settings.reminders_enabled === "true";
   remindersForm.elements.reminders_username.value = settings.reminders_username || "";
+  remindersForm.elements.reminders_bridge_url.value = settings.reminders_bridge_url || "";
   remindersForm.elements.reminders_sync_minutes.value = settings.reminders_sync_minutes || "";
+  toggleRemindersSourceFields(remindersSource);
   populateReminderListSelect(settings.reminders_list_href, settings.reminders_list_name);
   const remindersBadge = $("#reminders-status");
-  remindersBadge.textContent = settings.reminders_configured ? "Aktiv" : "Ikke konfigureret";
+  const remindersSourceLabel = remindersSource === "bridge" ? "Mac mini" : "iCloud CalDAV";
+  remindersBadge.textContent = settings.reminders_configured ? `Aktiv via ${remindersSourceLabel}` : "Ikke konfigureret";
   remindersBadge.classList.toggle("ok", !!settings.reminders_configured);
   remindersBadge.classList.toggle("error", !settings.reminders_configured);
   if (settings.reminders_configured && !settings.reminders_list_href) remindersBadge.textContent = "Manglende liste";
   if (settings.reminders_last_error) {
-    $("#reminders-help").innerHTML = `Sidste fejl: <span class="error-text">${escapeHtml(settings.reminders_last_error)}</span><br>Brug et app-specifikt password oprettet på appleid.apple.com (kræver to-faktor-login) og kopiér det præcist, uden mellemrum.`;
+    const hint = remindersSource === "bridge"
+      ? "Kontrollér at FamilyBridge kører på Mac mini'en, at adressen og tokenet er korrekte, og at Påmindelser er godkendt under Systemindstillinger > Anonymitet og sikkerhed > Påmindelser."
+      : "Brug et app-specifikt password oprettet på appleid.apple.com (kræver to-faktor-login) og kopiér det præcist, uden mellemrum.";
+    $("#reminders-help").innerHTML = `Sidste fejl: <span class="error-text">${escapeHtml(settings.reminders_last_error)}</span><br>${hint}`;
   }
   const notesForm = $("#icloud-notes-form");
   notesForm.elements.notes_imap_enabled.checked = settings.notes_imap_enabled === true || settings.notes_imap_enabled === "true";
   notesForm.elements.notes_imap_username.value = settings.notes_imap_username || "";
   notesForm.elements.notes_imap_host.value = settings.notes_imap_host || "imap.mail.me.com";
   notesForm.elements.notes_imap_note_title.value = settings.notes_imap_note_title || "";
+  const notesSource = settings.notes_source === "imap" ? "imap" : "bridge";
+  notesForm.elements.notes_source.value = notesSource;
+  const notesImapFields = $("#notes-imap-fields");
+  if (notesImapFields) notesImapFields.hidden = notesSource !== "imap";
   const notesBadge = $("#notes-status");
-  notesBadge.textContent = settings.notes_imap_configured ? "Aktiv" : "Ikke konfigureret";
+  notesBadge.textContent = settings.notes_imap_configured
+    ? (settings.reminders_bridge_configured && notesSource === "bridge" ? "Aktiv via Mac mini" : "Aktiv")
+    : "Ikke konfigureret";
   notesBadge.classList.toggle("ok", !!settings.notes_imap_configured);
   notesBadge.classList.toggle("error", !settings.notes_imap_configured);
   if (settings.notes_imap_last_error) {
@@ -375,6 +389,13 @@ function renderSettings(summary) {
   reolinkForm.elements.reolink_close_delay.value = settings.reolink_close_delay ?? 0;
   const loggingForm = $("#logging-form");
   if (loggingForm) loggingForm.elements.log_level.value = settings.log_level || "warning";
+}
+
+function toggleRemindersSourceFields(source) {
+  const bridge = $("#reminders-bridge-fields");
+  const caldav = $("#reminders-caldav-fields");
+  if (bridge) bridge.hidden = source !== "bridge";
+  if (caldav) caldav.hidden = source === "bridge";
 }
 
 function populateReminderListSelect(href = "", name = "") {
@@ -643,6 +664,7 @@ function openCameraModal(camera = null) {
       host: `${values.scheme}://${values.host.trim()}:${Number(values.port) || (values.scheme === "https" ? 443 : 80)}`,
       username: (values.username || "").trim(),
       password: values.password || "",
+      has_password: Boolean(state.cameras.find((item) => item.id === camera?.id)?.has_password),
       channel: Number(values.channel || 0),
       live_stream_url: (values.live_stream_url || "").trim(),
       person_enabled: values.person_enabled === "on",
@@ -934,6 +956,14 @@ function bindEvents() {
       values.reminders_list_name = selected.dataset.name || "";
     }
     if (!values.reminders_app_password) delete values.reminders_app_password;
+    if (!values.reminders_bridge_token) delete values.reminders_bridge_token;
+    if (values.reminders_source === "caldav") {
+      delete values.reminders_bridge_url;
+      delete values.reminders_bridge_token;
+    } else {
+      delete values.reminders_username;
+      delete values.reminders_app_password;
+    }
     values.reminders_enabled = values.reminders_enabled === "on";
     values.reminders_sync_minutes = Number(values.reminders_sync_minutes) || undefined;
     try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); showToast("Påmindelser gemt"); } catch (error) { showToast(error.message, true); }
@@ -942,10 +972,31 @@ function bindEvents() {
     const button = $("#reminders-fetch-lists");
     const help = $("#reminders-help");
     button.disabled = true;
+    // Backendkaldet læser gemte indstillinger, så uændrede felter skal gemmes først.
+    const form = $("#icloud-reminders-form");
+    const typedSource = form.elements.reminders_source.value === "caldav" ? "caldav" : "bridge";
+    const typedUrl = (form.elements.reminders_bridge_url.value || "").trim();
+    const saved = state.settings || {};
+    const hasToken = (form.elements.reminders_bridge_token.value || "").trim() || saved.reminders_bridge_configured;
+    const dirty =
+      typedSource !== (saved.reminders_source === "caldav" ? "caldav" : "bridge") ||
+      (typedSource === "bridge" && typedUrl && typedUrl !== (saved.reminders_bridge_url || "")) ||
+      (typedSource === "bridge" && !saved.reminders_bridge_configured && !hasToken) ||
+      (typedSource === "caldav" && !saved.reminders_configured);
+    if (dirty) {
+      help.innerHTML = "Gem først de nye påmindelsesindstillinger, og hent så lister igen.";
+      showToast("Gem indstillingerne først", true);
+      button.disabled = false;
+      return;
+    }
     try {
       const result = await api("/api/reminders/lists");
       if (result.error) {
-        help.innerHTML = `Fejl: <span class="error-text">${escapeHtml(result.error)}</span><br>Tjek Apple-id og app-specifikt password (oprettet på appleid.apple.com med to-faktor-login slået til), og kopiér passwordet præcist uden mellemrum.`;
+        const source = state.settings?.reminders_source === "caldav" ? "caldav" : "bridge";
+        const hint = source === "caldav"
+          ? "Tjek Apple-id og app-specifikt password (oprettet på appleid.apple.com med to-faktor-login slået til), og kopiér passwordet præcist uden mellemrum."
+          : "Tjek at FamilyBridge kører på Mac mini'en, at IP-adresse og port (8787) er korrekte, og at tokenet er kopieret fra FamilyBridge --token. Godkend også Påmindelser under Systemindstillinger > Anonymitet og sikkerhed > Påmindelser.";
+        help.innerHTML = `Fejl: <span class="error-text">${escapeHtml(result.error)}</span><br>${hint}`;
         showToast(`Kunne ikke hente lister: ${result.error}`, true);
         state.reminderLists = [];
       } else {
@@ -962,16 +1013,47 @@ function bindEvents() {
     }
   });
   $("#reminders-sync-now").addEventListener("click", async () => {
+    const source = state.settings?.reminders_source === "caldav" ? "caldav" : "bridge";
+    const hint = source === "caldav" ? "fyld Apple-id, password og vælg en liste" : "indtast Mac'ens adresse og token, og vælg en liste";
     try {
       const result = await api("/api/reminders/sync", { method: "POST" });
-      showToast(result.synced ? `Checklisten er synkroniseret (${result.count || 0} opgaver)` : (result.reason === "disabled" ? "Synk deaktiveret – fyld Apple-id, password og vælg en liste under Indstillinger" : `Synk fejlede: ${result.error || "ukendt fejl"}`), !result.synced);
+      showToast(result.synced ? `Checklisten er synkroniseret (${result.count || 0} opgaver)` : (result.reason === "disabled" ? `Synk deaktiveret – ${hint} under Indstillinger` : `Synk fejlede: ${result.error || "ukendt fejl"}`), !result.synced);
       await loadSummary(true);
     } catch (error) { showToast(error.message, true); }
+  });
+  $("#reminders-test").addEventListener("click", async () => {
+    const button = $("#reminders-test");
+    button.disabled = true;
+    try {
+      const result = await api("/api/reminders/test", { method: "POST" });
+      $("#reminders-help").innerHTML = result.ok
+        ? `<span class="ok-text">${escapeHtml(result.message)}</span>`
+        : `Forbindelse fejlede: <span class="error-text">${escapeHtml(result.message)}</span>`;
+      showToast(result.ok ? "Forbindelsen virker" : result.message, !result.ok);
+    } catch (error) {
+      showToast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $("#setting-reminders-source").addEventListener("change", (event) => {
+    toggleRemindersSourceFields(event.target.value);
+    state.reminderLists = [];
+    populateReminderListSelect();
+  });
+  $("#setting-notes-source").addEventListener("change", (event) => {
+    const fields = $("#notes-imap-fields");
+    if (fields) fields.hidden = event.target.value !== "imap";
   });
   $("#icloud-notes-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
     if (!values.notes_imap_app_password) delete values.notes_imap_app_password;
+    if (values.notes_source === "bridge") {
+      delete values.notes_imap_username;
+      delete values.notes_imap_app_password;
+      delete values.notes_imap_host;
+    }
     values.notes_imap_enabled = values.notes_imap_enabled === "on";
     try {
       await api("/api/settings", { method: "PATCH", body: values });
