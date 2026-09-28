@@ -15,6 +15,12 @@ if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ]; then
   exit 0
 fi
 
+# xpcproxy (launchd) håndhæver com.apple.quarantine og returnerer
+# posix_spawn EACCES -> exit 78 (EX_CONFIG) for agenter, der er overført
+# med attributten. Terminal gør ikke, så uden denne linje fejler agenten
+# stille og gentagne gange efter en frisk installation.
+xattr -dr com.apple.quarantine "/Applications/FamilyBridge.app" 2>/dev/null || true
+
 CONSOLE_UID="$(id -u "$CONSOLE_USER")"
 AGENT_DIR="/Users/${CONSOLE_USER}/Library/LaunchAgents"
 AGENT_PLIST="${AGENT_DIR}/${BUNDLE_ID}.plist"

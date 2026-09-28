@@ -70,6 +70,9 @@ AGENT_DIR="${TARGET_HOME}/Library/LaunchAgents"
 AGENT_PLIST="${AGENT_DIR}/${BUNDLE_ID}.plist"
 CONFIG_PATH="${TARGET_HOME}/Library/Application Support/${NAME}/config.json"
 
+# Se postinstall: uden denne linje giver launchd EX_CONFIG pga. quarantine.
+xattr -dr com.apple.quarantine "/Applications/${NAME}.app" 2>/dev/null || true
+
 echo "==> Sætter $NAME op for $TARGET_USER (uid $TARGET_UID)"
 
 # 1. Fjern et gammelt LaunchDaemon-layout, hvis en tidligere version havde det.
