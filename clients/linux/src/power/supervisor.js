@@ -16,13 +16,20 @@ class WallSupervisor {
     this.settings = options.settings ?? DEFAULTS;
     this.pollMs = options.pollMs ?? POLL_MS;
     this.timer = null;
+    // Klokken skal være klar, før tilstanden bruges til at tidsstemple starten.
+    this.now = options.now ?? (() => Date.now());
+    this.clock = options.clock ?? (() => new Date(this.now()));
     this.state = {
       on: true,
       brightness: 100,
       reason: 'start',
-      lastChangeAt: Date.now(),
-      presenceSince: null,
-      lastPresenceAt: null,
+      lastChangeAt: this.now(),
+      // Tilstedeværelse er en tidsbegrænset tilladelse, ikke en kontakt der
+      // bliver stående. Ellers ville ét tryk holde skærmen tændt for evigt.
+      presenceUntil: null,
+      // Uden en starttidspunkt ville den første dvale-periode aldrig kunne
+      // løbe ud, fordi "tid siden sidste præsens" så ville være 0 lige meget.
+      lastPresenceAt: this.now(),
     };
     this.onChange = options.onChange ?? (() => {});
     this.onSleep = options.onSleep ?? (() => {});
@@ -31,7 +38,6 @@ class WallSupervisor {
     this.presenceEnabled = options.presenceEnabled ?? false;
     this.readLight = options.readLight ?? readAmbientLight;
     this.screenControl = options.screenControl ?? screen;
-    this.clock = options.clock ?? (() => new Date());
   }
 
   start() {
@@ -46,22 +52,32 @@ class WallSupervisor {
     this.timer = null;
   }
 
-  /// Et tryk på skærmen tæller som præsens og fornyer tidsfristen.
+  /// Et tryk tæller som præsens i en kort periode og fornyer samtidig
+  /// dvale-fristen. Er der ingen ny aktivitet bagefter, falder tilstedeværelsen
+  /// væk, og skærmen går i dvale når den samlede ventetid er brugt op.
   registerTouch() {
-    this.state.lastPresenceAt = Date.now();
-    if (this.state.presenceSince === null) {
-      this.state.presenceSince = Date.now();
-    }
+    const now = this.now();
+    this.state.lastPresenceAt = now;
+    this.state.presenceUntil = now + this.presenceLeaseMs();
     this.tick();
+  }
+
+  presenceLeaseMs() {
+    const minutes = Number(this.settings?.presence?.warmupGraceMinutes);
+    return (Number.isFinite(minutes) && minutes > 0 ? minutes : 3) * 60_000;
+  }
+
+  presenceDetected() {
+    return this.state.presenceUntil !== null && this.now() < this.state.presenceUntil;
   }
 
   /// Bevægelse meldt af Reolink-kameraet, som står et andet sted i huset.
   registerExternalPresence(seconds = 0) {
-    const now = Date.now();
+    const now = this.now();
     this.state.lastPresenceAt = now;
     // Bevægelsen holder præsens "levende" i det angivne antal sekunder, så et
     // kort kamera-blink ved døren ikke tæller som fristende udløbet.
-    this.state.presenceSince = now - Math.max(0, seconds) * 1000;
+    this.state.presenceUntil = now + Math.max(0, seconds) * 1000;
     this.tick();
   }
 
@@ -76,15 +92,18 @@ class WallSupervisor {
   }
 
   idleMinutes() {
-    if (this.state.lastPresenceAt === null) return Number.POSITIVE_INFINITY;
-    return (Date.now() - this.state.lastPresenceAt) / 60000;
+    // Naar der endnu ikke er set nogen, tæller tiden siden appen startede,
+    // så skærmen stadig kan gå i dvale efter en stille periode.
+    const reference = this.state.lastPresenceAt ?? this.state.lastChangeAt;
+    if (reference === null || reference === undefined) return Number.POSITIVE_INFINITY;
+    return (this.now() - reference) / 60000;
   }
 
   tick() {
     const light = this.readLight();
     const decision = decide(this.settings, {
       now: this.clock(),
-      presenceDetected: this.state.presenceSince !== null,
+      presenceDetected: this.presenceDetected(),
       idleMinutes: this.idleMinutes(),
       ambientLux: light?.lux ?? null,
       forcedOff: this.forcedOff,
@@ -96,7 +115,7 @@ class WallSupervisor {
     const firstRun = this.state.applied !== true;
     const brightnessChanged = decision.on && decision.brightness !== this.state.brightness;
 
-    this.state = { ...this.state, ...decision, lastChangeAt: Date.now(), applied: true };
+    this.state = { ...this.state, ...decision, lastChangeAt: this.now(), applied: true };
 
     if (decision.on) {
       if (!wasOn) {
@@ -119,7 +138,7 @@ class WallSupervisor {
       on: this.state.on,
       brightness: this.state.brightness,
       reason: this.state.reason,
-      present: this.state.presenceSince !== null,
+      present: this.presenceDetected(),
       idleMinutes: Number.isFinite(this.idleMinutes()) ? Math.round(this.idleMinutes()) : null,
       ambientLux: light?.lux ?? null,
       lightSensor: this.readLight !== readAmbientLight ? null : light?.lux ?? null,
