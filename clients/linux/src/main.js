@@ -6,6 +6,7 @@ const { app, BrowserWindow, ipcMain, powerSaveBlocker, screen, session } = requi
 const { checkServer } = require('./connection');
 const { readSettings, readWallSettings, writeSettings, writeWallSettings } = require('./settings');
 const { normalizeServerUrl, originOf } = require('./url');
+const { CameraPresence } = require('./cameras/presence');
 const { DEFAULTS } = require('./power/policy');
 const { WallSupervisor } = require('./power/supervisor');
 const screenControl = require('./power/screen');
@@ -24,6 +25,7 @@ let retryTimer = null;
 let isQuitting = false;
 let supervisor = null;
 let powerSaveBlockerId = null;
+let cameraPresence = null;
 
 app.setName('family-dashboard-kiosk');
 const userDataDirectoryPath = path.join(app.getPath('appData'), 'family-dashboard-kiosk');
@@ -175,6 +177,42 @@ function startSupervisor() {
   });
   supervisor.start();
   return supervisor;
+}
+
+/// Vækker skærmen når Reolink registrerer en person eller et køretøj.
+/// Dashboardets egen popup kan ikke ses på en slukket skærm, så denne
+/// bro sikrer at skærmen er tændt inden popup'en vises.
+function startCameraBridge() {
+  stopCameraBridge();
+  if (!settings) {
+    return;
+  }
+  let origin;
+  try {
+    origin = originOf(settings.serverUrl);
+  } catch {
+    return;
+  }
+  cameraPresence = new CameraPresence({
+    origin,
+    leaseSeconds: Number(wallSettings?.presence?.motionLeaseSeconds ?? 60),
+    // session.defaultSession.fetch deler cookies med dashboard-vinduet, så
+    // broen er logget ind uden at håndtere adgangskode selv.
+    fetchImpl: (url) => session.defaultSession.fetch(url, { credentials: 'include' }),
+    onMotion: ({ leaseSeconds, types }) => {
+      supervisor?.registerExternalPresence(leaseSeconds);
+      log(`Kamera: ${types.join(', ')} – skærmen vækket`);
+    },
+    onError: (error) => log(`Kamerabro: ${error.message}`),
+  });
+  cameraPresence.start();
+}
+
+function stopCameraBridge() {
+  if (cameraPresence) {
+    cameraPresence.stop();
+    cameraPresence = null;
+  }
 }
 
 function createHandleWindow() {
@@ -340,6 +378,7 @@ async function loadSetup() {
   clearRetry();
   mode = 'setup';
   hideHandle();
+  stopCameraBridge();
   if (mainWindow && !mainWindow.isDestroyed()) {
     await mainWindow.loadFile(path.join(uiDirectory, 'setup.html'));
     mainWindow.show();
@@ -358,6 +397,7 @@ async function loadDashboard() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
   }
+  startCameraBridge();
   try {
     await mainWindow.loadURL(settings.serverUrl);
   } catch {
@@ -372,6 +412,7 @@ function showOffline() {
   clearRetry();
   mode = 'offline';
   hideHandle();
+  stopCameraBridge();
   mainWindow.loadFile(path.join(uiDirectory, 'offline.html')).catch(() => {});
   retryTimer = setTimeout(() => loadDashboard(), 15000);
 }
@@ -472,6 +513,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     isQuitting = true;
     clearRetry();
+    stopCameraBridge();
     supervisor?.stop();
     supervisor = null;
     if (powerBlockerId !== null) {

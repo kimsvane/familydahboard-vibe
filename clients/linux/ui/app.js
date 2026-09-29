@@ -118,6 +118,8 @@ initialize().catch((error) => setStatus(messageFrom(error), 'error'));
 // og ved bevægelse meldt fra Reolink-kameraet.
 
 const wallForm = document.querySelector('#wall-form');
+// Gemmes så formularen ikke mister værdier den ikke selv har et felt for.
+let currentWallSettings = null;
 const wallStatus = document.querySelector('#wall-status');
 const wallResult = document.querySelector('#wall-result');
 const wallCard = document.querySelector('#wall-card');
@@ -168,6 +170,7 @@ function readWallForm() {
       wakeOutsideSchedule: document.querySelector('#wake-outside')?.checked ?? true,
       sleepAfterIdleMinutes: Number(document.querySelector('#idle-minutes')?.value ?? 45),
       warmupGraceMinutes: 3,
+      motionLeaseSeconds: currentWallSettings?.presence?.motionLeaseSeconds ?? 60,
     },
     brightness: {
       auto: document.querySelector('#brightness-auto')?.checked ?? true,
@@ -181,6 +184,7 @@ function readWallForm() {
 }
 
 function fillWallForm(settings) {
+  currentWallSettings = settings ?? null;
   const radio = wallForm?.querySelector(`input[name="mode"][value="${settings?.mode ?? 'schedule'}"]`);
   if (radio) radio.checked = true;
 

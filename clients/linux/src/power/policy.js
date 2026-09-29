@@ -8,6 +8,8 @@ const DEFAULTS = Object.freeze({
     wakeOutsideSchedule: true,
     sleepAfterIdleMinutes: 45,
     warmupGraceMinutes: 3,
+    // Sekunder skærmen holdes tændt efter en bevægelse fra kameraet.
+    motionLeaseSeconds: 60,
   },
   brightness: {
     auto: true,
