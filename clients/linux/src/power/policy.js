@@ -75,7 +75,12 @@ function isWithinSchedule(settings, date) {
 /// Lysstyrke som procent ud fra lux. Mørkt rum giver lavt lys, lyst rum får fuld.
 function brightnessFor(settings, lux) {
   const config = settings?.brightness ?? DEFAULTS.brightness;
-  if (!config.auto || lux === null || lux === undefined) return config.maxPercent;
+  // Uden auto-brightness er det fuld lysstyrke, brugeren har bedt om.
+  if (!config.auto) return config.maxPercent;
+  // Kan vi ikke maale lyset, skal vaegget vaere mørkt og ikke skinne i
+  // hovedet paa et menneske. En sensor der ikke svarer er en god grund
+  // til at vaere forsigtig, ikke til at antage at rummet er lyst.
+  if (lux === null || lux === undefined) return config.minPercent;
   const dark = Number(config.darkLux);
   const bright = Number(config.brightLux);
   const min = Number(config.minPercent);

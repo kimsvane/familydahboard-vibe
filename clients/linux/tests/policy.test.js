@@ -135,8 +135,12 @@ test('ekstremt mørkt eller lyst bliver klemt til det tilladte interval', () => 
   assert.equal(brightnessFor(auto, 99999), 100);
 });
 
-test('slukket lyssensor betyder fuld lysstyrke i stedet for gætteri', () => {
-  assert.equal(brightnessFor({ brightness: { auto: true, maxPercent: 100 } }, null), 100);
+test('slukket lyssensor dæmmer for et mørkt rum i stedet for at blende', () => {
+  // Der er valgt det modsatte tidligere. Det er rigtigt at ville gætte
+  // naer sensoren tier, men fuld lysstyrke er netop det forkerte gæt:
+  // vaegget sidder paa en vaeg i sovevaerrelset og skal ikke skinne i
+  // hovedet paa nogen, fordi et sensorproblem er opstaet.
+  assert.equal(brightnessFor({ brightness: { auto: true, minPercent: 15, maxPercent: 100 } }, null), 15);
 });
 
 test('manuel lysstyrke bruges når automatik er slået fra', () => {
@@ -168,4 +172,16 @@ test('ugyldige tidsfelter slår tidsplanen fra i stedet for at gå i uvedvarende
   const broken = { schedule: { enabled: true, from: 'xx', to: 'yy', days: [0, 1, 2, 3, 4, 5, 6] } };
   const result = decide(broken, { now: insideWindow });
   assert.equal(result.on, false);
+});
+
+test(' kan vaegten ikke maale lyset, dæmmer den for et mørkt rum', () => {
+  // En sensor der ikke svarer maa ikke faa vaegget til at tro at rummet er
+  // lyst. Fuld lysstyrke i et sovevaerrelse er et skarpt lys i hovedet.
+  assert.equal(brightnessFor(DEFAULTS, null), DEFAULTS.brightness.minPercent);
+  assert.equal(brightnessFor(DEFAULTS, undefined), DEFAULTS.brightness.minPercent);
+});
+
+test(' er auto-brightness slaaet fra, bruges den fulde lysstyrke', () => {
+  const uden = { ...DEFAULTS, brightness: { ...DEFAULTS.brightness, auto: false } };
+  assert.equal(brightnessFor(uden, 50), 100);
 });
