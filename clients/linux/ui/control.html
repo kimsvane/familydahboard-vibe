@@ -26,6 +26,89 @@
         <button class="danger" id="quit-button" type="button">Luk dashboardet</button>
       </div>
     </section>
+
+    <section class="card" id="wall-card" hidden>
+      <p class="eyebrow">Vægskærm</p>
+      <h2>Skærm og tilstedeværelse</h2>
+
+      <p class="status" id="wall-status" aria-live="polite"></p>
+
+      <form id="wall-form">
+        <fieldset>
+          <legend>Hvornår skal skærmen være tændt?</legend>
+          <label class="valg">
+            <input type="radio" name="mode" value="schedule">
+            <span><strong>Som et ur</strong><small>Følger tidsplanen nedenfor</small></span>
+          </label>
+          <label class="valg">
+            <input type="radio" name="mode" value="presence">
+            <span><strong>Når nogen er i nærheden</strong><small>Springer tidsplanen over. Barnet trykker bare på skærmen for at vække den</small></span>
+          </label>
+          <label class="valg">
+            <input type="radio" name="mode" value="always">
+            <span><strong>Altid tændt</strong><small>Tidsplan og dvale er slået fra</small></span>
+          </label>
+        </fieldset>
+
+        <fieldset id="schedule-felt">
+          <legend>Tidsplan</legend>
+          <label class="kontakt">
+            <input type="checkbox" id="schedule-enabled">
+            <span>Slå tidsplanen til</span>
+          </label>
+          <div class="række">
+            <label for="schedule-from">Fra kl.</label>
+            <input id="schedule-from" type="time" step="300">
+            <label for="schedule-to">Til kl.</label>
+            <input id="schedule-to" type="time" step="300">
+          </div>
+          <div class="dage" id="schedule-days" role="group" aria-label="Aktive dage">
+            <label class="dag"><input type="checkbox" value="1"><span>Man</span></label>
+            <label class="dag"><input type="checkbox" value="2"><span>Tir</span></label>
+            <label class="dag"><input type="checkbox" value="3"><span>Ons</span></label>
+            <label class="dag"><input type="checkbox" value="4"><span>Tor</span></label>
+            <label class="dag"><input type="checkbox" value="5"><span>Fre</span></label>
+            <label class="dag"><input type="checkbox" value="6"><span>Lør</span></label>
+            <label class="dag"><input type="checkbox" value="0"><span>Søn</span></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Sluk når der er ro</legend>
+          <label class="række">
+            <span class="række__tekst">Gå i dvale efter</span>
+            <input id="idle-minutes" type="number" min="0" max="600" step="5" inputmode="numeric">
+            <span class="række__tekst">minutter uden aktivitet</span>
+          </label>
+          <p class="hjælp">Sæt til 0 for aldrig at slukke. Når skærmen er slukket, kan den vækkes ved at trykke på den.</p>
+          <label class="kontakt">
+            <input type="checkbox" id="wake-outside">
+            <span>Bevægelse fra kameraet må vække skærmen uden for tidsplanen</span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Lysstyrke</legend>
+          <label class="kontakt">
+            <input type="checkbox" id="brightness-auto">
+            <span>Justér lysstyrken efter lyset i rummet</span>
+          </label>
+          <div class="række" id="brightness-felt">
+            <label for="brightness-min">Mørkest</label>
+            <input id="brightness-min" type="number" min="5" max="100" step="5" inputmode="numeric">
+            <span class="række__tekst">%</span>
+          </div>
+          <p class="hjælp" id="sensor-hjælp"></p>
+        </fieldset>
+
+        <div class="actions">
+          <button class="primary" type="submit">Gem vægindstillinger</button>
+          <button class="secondary" id="screen-off-button" type="button">Sluk nu</button>
+          <button class="secondary" id="screen-on-button" type="button">Tænd nu</button>
+        </div>
+        <p class="status" id="wall-result" aria-live="polite"></p>
+      </form>
+    </section>
   </main>
   <script src="app.js"></script>
 </body>

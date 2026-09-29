@@ -42,3 +42,108 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .handle-button { width: 52px; height: 52px; min-height: 52px; margin: 8px; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--text); background: rgba(23, 36, 65, 0.72); font-size: 1.35rem; opacity: 0.32; }
 .handle-button:hover, .handle-button:focus-visible { opacity: 1; }
 .handle-button:active { opacity: 0.85; transform: scale(0.94); }
+
+/* Vægindstillinger. Felterne er grupperet i fieldsets, så det er nemt at
+   scanne, og hver gruppe kan skjules når den ikke er relevant. */
+fieldset {
+  border: 1px solid rgba(148, 163, 196, 0.28);
+  border-radius: 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0.9rem 1rem 1rem;
+}
+
+legend {
+  padding: 0 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--svag, #94a3c4);
+}
+
+h2 {
+  margin: 0.2rem 0 0.6rem;
+  font-size: 1.35rem;
+}
+
+label.valg,
+label.kontakt {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  cursor: pointer;
+  line-height: 1.35;
+}
+
+label.valg span {
+  display: flex;
+  flex-direction: column;
+}
+
+label.valg small {
+  color: var(--svag, #94a3c4);
+  font-size: 0.82rem;
+}
+
+label.valg input,
+label.kontakt input {
+  margin: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  margin-top: 0.15rem;
+  accent-color: #4f7cff;
+}
+
+.række {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0;
+}
+
+.række input[type="time"],
+.række input[type="number"] {
+  width: 6.5rem;
+}
+
+.dage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+
+label.dag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid rgba(148, 163, 196, 0.3);
+  border-radius: 0.5rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+label.dag input {
+  accent-color: #4f7cff;
+}
+
+.hjælp {
+  margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+  color: var(--svag, #94a3c4);
+}
+
+fieldset:disabled,
+fieldset[data-irrelevant="true"] {
+  opacity: 0.45;
+}
+
+.række__tekst {
+  color: var(--svag, #94a3c4);
+  font-size: 0.88rem;
+}

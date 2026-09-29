@@ -219,8 +219,8 @@ function openControlWindow() {
     return;
   }
   controlWindow = new BrowserWindow({
-    width: 520,
-    height: 640,
+    width: 560,
+    height: 860,
     show: false,
     parent: mainWindow || undefined,
     resizable: false,
@@ -417,8 +417,23 @@ function registerIpcHandlers() {
     return wallSettings;
   });
   ipcMain.handle('wall:wake', () => {
+    supervisor?.setForcedOff(false);
     supervisor?.registerTouch();
     hideWakeWindow();
+    return true;
+  });
+  // Knapperne i indstillingerne skal kunne tvinge skærmen af og til,
+  // uden at det ændrer den gemte tidsplan.
+  ipcMain.handle('wall:screen', (_event, value) => {
+    if (!supervisor) return false;
+    if (value?.on === true) {
+      supervisor.setForcedOff(false);
+      supervisor.registerTouch();
+      hideWakeWindow();
+      return true;
+    }
+    supervisor.setForcedOff(true);
+    showWakeWindow();
     return true;
   });
 }
