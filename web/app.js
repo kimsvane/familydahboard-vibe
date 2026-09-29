@@ -104,12 +104,30 @@ async function api(path, options = {}) {
   }
   const response = await fetch(path, request);
   if (response.status === 401) {
-    showLogin();
+    // En enkelt anmodning må ikke smide brugeren ud. Først spørger vi
+    // serveren, om sessionen stadig er gyldig, og logger først ud når den
+    // virkelig er væk. Ellers ville ét fejlsving kaste brugeren på
+    // loginskærmen hvert 60. sekund, selv om han stadig er logget ind.
+    if (!(await sessionStillValid())) showLogin();
     throw new Error("Login required");
   }
   const payload = response.status === 204 ? {} : await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail || "Noget gik galt");
   return payload;
+}
+
+/// Spørger serveren om sessionen stadig holder, uden at bruge api(), så
+/// den ikke kan kalde sig selv rekursivt.
+async function sessionStillValid() {
+  try {
+    const response = await fetch("/api/auth/status", { credentials: "same-origin", cache: "no-store" });
+    if (!response.ok) return false;
+    const status = await response.json().catch(() => ({}));
+    return status.authenticated === true;
+  } catch {
+    // Kan ikke nå serveren, så vi kan ikke bevise at sessionen er væk.
+    return true;
+  }
 }
 
 function setConnection(online, label) {
@@ -621,7 +639,7 @@ function bindLayoutEditor() {
     const css = $("#layout-css").value;
     state.customCss = css;
     state.layoutDirty = true;
-    applyCustomCss(css);
+    applyTodayLayout();
     await api("/api/settings", {
       method: "PATCH",
       body: {
@@ -1514,7 +1532,9 @@ async function init() {
     if (!status.authenticated) { showLogin(); return; }
     await loadSummary();
   } catch (error) {
-    showLogin();
+    // Kun en bekræftet ugyldig session må vise loginskærmen.
+    if (!(await sessionStillValid())) showLogin();
+    else setConnection(false, "Kunne ikke opdatere");
   }
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 }

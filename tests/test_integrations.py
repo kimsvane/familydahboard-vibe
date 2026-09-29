@@ -1377,3 +1377,54 @@ def test_today_layout_settings_roundtrip_and_validation(tmp_path):
     finally:
         main.database = old_database
         main.synchronizer.database = old_synchronizer_database
+
+
+def test_build_id_changes_with_frontend(tmp_path):
+    """Build-id'en bruges som ?v= på assets, så den SKÆRTE ændre sig ved
+    ændringer i frontenden. Ellers genbruger browseren en gammel app.js."""
+    from app import version as version_module
+
+    original = version_module._STATIC_DIR
+    web = tmp_path / "web"
+    web.mkdir()
+    for name in ("index.html", "app.js", "styles.css"):
+        (web / name).write_text("første udgave", encoding="utf-8")
+    version_module._STATIC_DIR = web
+    try:
+        første = version_module.asset_fingerprint()
+        # Uden ændringer skal fingeraftrykket være stabilt.
+        assert version_module.asset_fingerprint() == første
+
+        (web / "app.js").write_text("anden udgave", encoding="utf-8")
+        anden = version_module.asset_fingerprint()
+        assert anden != første, "app.js-ændring skal ændre fingeraftrykket"
+
+        # Begge skal være brugbare id'er, der kun afviger hinanden.
+        assert len(første) == 8 and len(anden) == 8
+    finally:
+        version_module._STATIC_DIR = original
+
+
+def test_build_id_is_not_bare_version():
+    """Regression: BUILD_ID var før kun VERSION, hvilket gav browseren samme
+    asset-URL efter hver opdatering."""
+    from app.version import BUILD_ID, VERSION
+
+    assert BUILD_ID != VERSION, "BUILD_ID må ikke være lig VERSION"
+    assert "-" in BUILD_ID
+
+
+def test_assets_are_served_with_build_id(tmp_path):
+    old_database = main.database
+    database = Database(tmp_path / "assets-api.db")
+    main.database = database
+    try:
+        with TestClient(main.app) as client:
+            html = client.get("/").text
+            assert main.BUILD_ID in html
+            assert f"/assets/app.js?v={main.BUILD_ID}" in html
+            assert f"/assets/styles.css?v={main.BUILD_ID}" in html
+            health = client.get("/api/health").json()
+            assert health["build"] == main.BUILD_ID
+    finally:
+        main.database = old_database
