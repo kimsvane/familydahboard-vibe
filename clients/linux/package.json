@@ -2,7 +2,7 @@
   "name": "family-dashboard-kiosk",
   "version": "0.1.0",
   "private": true,
-  "description": "Fuldskærmsklient til Family Dashboard på en dedikeret Linux-enhed",
+  "description": "Fuldsk\u00e6rmsklient til Family Dashboard p\u00e5 en dedikeret Linux-enhed",
   "homepage": "https://github.com/kimsvane/familydahboard-vibe",
   "author": {
     "name": "Kim",
@@ -14,7 +14,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/url.js && node --check src/settings.js && node --check src/connection.js && node --check ui/app.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/url.js && node --check src/settings.js && node --check src/connection.js && node --check src/sensors/iio.js && node --check src/power/policy.js && node --check ui/app.js",
     "test": "node --test tests/*.test.js",
     "dist": "electron-builder --linux",
     "dist:current": "electron-builder --linux --x64"
@@ -44,13 +44,13 @@
         "rpm"
       ],
       "category": "Utility",
-      "synopsis": "Dedikeret fuldskærmsklient til Family Dashboard",
+      "synopsis": "Dedikeret fuldsk\u00e6rmsklient til Family Dashboard",
       "icon": "build/icon.png",
       "executableName": "family-dashboard-kiosk",
       "desktop": {
         "entry": {
           "Name": "Family Dashboard",
-          "Comment": "Vis Family Dashboard i fuldskærm",
+          "Comment": "Vis Family Dashboard i fuldsk\u00e6rm",
           "Categories": "Utility;Network;",
           "StartupNotify": "false"
         }
