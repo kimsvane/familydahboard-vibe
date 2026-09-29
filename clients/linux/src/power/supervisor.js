@@ -154,7 +154,11 @@ class WallSupervisor {
     if (valg === 'static') {
       maal = this.settings?.display?.staticRotation ?? 'none';
     } else if (valg === 'auto') {
-      maal = this.orientation.read();
+      // Ligger enheden paa kanten, hvor de to akser er lige stærke, kan vi
+      // ikke se hvilken vej den egentlig er bleven drejet. Saa bruges
+      // landskab, for uden et maal vilde skaermen bare blive liggende i
+      // den sidste retning den nu engang var sat i.
+      maal = this.orientation.read() ?? 'none';
     }
     if (!maal || maal === this.appliedRotation) return;
 

@@ -395,3 +395,32 @@ test('er skærmen låst fra hånden, skal den kunne komme tilbage til samme retn
   supervisor.tick();
   assert.deepEqual(fake.rotation, ['left', 'left'], 'den skal prøve igen efter en fejl');
 });
+
+test(' naar enheden ligger paa kanten, gaar skoermen tilbage til landskab', () => {
+  // Ellers kunne den blive haengende i en tidligere valgt retning, og sa
+  // kunne den kun frigores ved at vride enheden.
+  const { supervisor, fake } = medRotation({ display: { rotation: 'auto' } }, { accel: { x: 1, y: 1, z: 0 } });
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, ['none']);
+});
+
+test(' en tidligere laaset retning springes ikke over ved omstilling til auto', () => {
+  const { fake } = roter();
+  let accel = { x: 1, y: 0, z: 0 };
+  const supervisor = new WallSupervisor({
+    settings: { ...DEFAULTS, display: { rotation: 'static', staticRotation: 'inverted' } },
+    screenControl: fake,
+    clock: () => new Date(2026, 0, 7, 12, 0, 0, 0),
+    readLight: () => ({ lux: 200 }),
+    readAcceleration: () => accel,
+  });
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, ['inverted']);
+
+  supervisor.settings = { ...DEFAULTS, display: { rotation: 'auto' } };
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, ['inverted', 'right']);
+  accel = VENSTRE;
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, ['inverted', 'right', 'left']);
+});
