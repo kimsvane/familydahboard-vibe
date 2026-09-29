@@ -137,16 +137,29 @@ function setDisplayEnabled(enabled, callback) {
 /// Slukker skærmen. DPMS er forsøgt først, fordi det også gør billedet
 /// aktivt sort, men hvis kscreen-doctor ikke svarer, så er lysstyrken nul
 /// nok til at panelet går mørkt. Fejl her skal aldrig stoppe resten.
-function turnOff(callback) {
-  setBrightnessPercent(0);
+function turnOff(callback, device = backlightDevice()) {
+  // Gør en ventende tændning ugyldig, så den ikke tænder igen bagefter.
+  taendringsrunde += 1;
+  setBrightnessPercent(0, device);
   setDisplayEnabled(false, () => callback(null));
 }
 
+// Tæller op, så en forsinket finishing ikke kan tænde skærmen igen efter
+// at den er blevet slukket. Uden dette kunne et tryk på "Sluk nu" kort
+// efter en værkning blive overskrevet af den ventende tændning.
+let taendringsrunde = 0;
+
 /// Tænder skærmen igen. Lysstyrken sættes til den værdi, der er valgt for
 /// det lys der er i rummet, og ikke automatisk til hundrede.
-function turnOn(percent, callback) {
+function turnOn(percent, callback, device = backlightDevice()) {
+  const runde = (taendringsrunde += 1);
   const finish = () => {
-    setBrightnessPercent(Number.isFinite(percent) ? percent : 100);
+    // Er der slået fra i mellemtiden, må denne tændning ikke gennemføres.
+    if (runde !== taendringsrunde) {
+      callback(null);
+      return;
+    }
+    setBrightnessPercent(Number.isFinite(percent) ? percent : 100, device);
     callback(null);
   };
   setDisplayEnabled(true, finish);

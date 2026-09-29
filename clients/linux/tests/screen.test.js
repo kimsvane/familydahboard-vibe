@@ -135,3 +135,27 @@ test('skærmen finder kernens svar selv naar kscreen-doctor er tavs', (t, done) 
     done();
   });
 });
+
+test('en ventende taendning maa ikke tænde skærmen igen efter en slukning', async () => {
+  const device = makeBacklight('100');
+  screen.setBrightnessPercent(40, device);
+  // DPMS svarer aldrig, saa kun sikkerhedstimeren kan redde skærmen.
+  const original = screen.setDisplayEnabled;
+  screen.setDisplayEnabled = (_enabled, callback) => { screen.setDisplayEnabled = original; };
+  screen.turnOn(70, () => {}, device);
+  screen.turnOff(() => {}, device);
+  await new Promise((resolve) => setTimeout(resolve, 3500));
+  assert.equal(fs.readFileSync(path.join(device, 'brightness'), 'utf8').trim(), '0', 'skærmen skal blive stående sort');
+});
+
+test('vaegning sætter den ønskede lysstyrke naar DPMS svarer', async () => {
+  const device = makeBacklight('100');
+  const original = screen.setDisplayEnabled;
+  screen.setDisplayEnabled = (enabled, callback) => {
+    screen.setDisplayEnabled = original;
+    callback(null);
+  };
+  screen.turnOn(35, () => {}, device);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(fs.readFileSync(path.join(device, 'brightness'), 'utf8').trim(), '35');
+});
