@@ -17,6 +17,11 @@ const state = {
   icloudNote: null,
   cameraTimer: null,
   detectTimer: null,
+  layout: null,
+  layoutMode: "auto",
+  todayColumns: "4",
+  customCss: "",
+  layoutDirty: false,
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -201,6 +206,9 @@ function renderSummary() {
   renderBirthdayGrid(summary.birthdays || []);
   renderSources(summary.sources || []);
   renderFrames(summary.frames || []);
+  loadLayout(summary.settings || {});
+  applyTodayLayout();
+  if (state.activeView === "layout") renderLayoutEditor();
   renderSettings(summary);
   renderIcloudNote();
   $("#last-updated").textContent = `Opdateret ${formatTime(summary.generated_at)}`;
@@ -336,6 +344,259 @@ function renderFrames(frames) {
     return;
   }
   target.innerHTML = frames.map((frame) => `<article class="panel frame-item" style="min-height:${frame.height + 54}px"><div class="frame-header"><div><strong>${escapeHtml(frame.name)}</strong><span> · iframe</span></div><div class="frame-actions"><button class="icon-button" data-edit-frame="${frame.id}" type="button" aria-label="Rediger">✎</button><button class="icon-button" data-delete-frame="${frame.id}" type="button" aria-label="Slet">×</button></div></div><iframe src="${escapeHtml(frame.url)}" title="${escapeHtml(frame.name)}" height="${frame.height}" loading="lazy" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"></iframe></article>`).join("");
+}
+
+/* ================= Layout-editor for I dag-siden ================= */
+
+const LAYOUT_CARDS = [
+  { id: "hero", name: "Vejr, overskrift og tagline", hint: "Hero-kortet", span: 1, row: 1, align: "left", valign: "top", hidden: false },
+  { id: "stat-events", name: "Familieaftaler i dag", hint: "Stat-kort", span: 1, row: 1, align: "left", valign: "top", hidden: false },
+  { id: "stat-birthday", name: "Næste fødselsdag", hint: "Stat-kort", span: 1, row: 1, align: "left", valign: "top", hidden: false },
+  { id: "calendar", name: "Familiekalender", hint: "Næste dage", span: 2, row: 1, align: "left", valign: "top", hidden: false },
+  { id: "school", name: "Skoleskema", hint: "I skolen", span: 1, row: 1, align: "left", valign: "top", hidden: false },
+  { id: "birthdays", name: "Fødselsdage", hint: "Det er værd at huske", span: 1, row: 1, align: "left", valign: "top", hidden: false },
+  { id: "members", name: "Familien", hint: "Hjemme", span: 1, row: 1, align: "left", valign: "top", hidden: false },
+  { id: "checklist", name: "Små opgaver", hint: "Checkliste", span: 1, row: 1, align: "left", valign: "top", hidden: false },
+  { id: "icloud-note", name: "Note fra iCloud", hint: "Fra iCloud", span: 1, row: 1, align: "left", valign: "top", hidden: false },
+];
+
+/// Gemmer det, brugeren har ændret, så det kan sendes til serveren.
+function layoutState() {
+  if (!state.layout) {
+    state.layout = LAYOUT_CARDS.map((card) => ({ ...card }));
+  }
+  return state.layout;
+}
+
+/// Læser det gemte layout og lader ukendte kort beholde standardværdier,
+/// så et kort der kommer til senere ikke forsvinder helt.
+function loadLayout(settings) {
+  // Summary genindlæses automatisk hvert 60. sekund. Hvis brugeren er ved at
+  // redigere, må de ugemte ændringer ikke forsvinde.
+  if (state.layoutDirty) return;
+  const stored = parseLayout(settings.today_layout);
+  const byId = new Map((stored || []).map((item) => [item.id, item]));
+  state.layout = LAYOUT_CARDS.map((card) => ({ ...card, ...(byId.get(card.id) || {}) }));
+  state.layoutMode = settings.today_layout_mode === "manual" ? "manual" : "auto";
+  state.todayColumns = String(Number(settings.today_columns) || 4);
+  state.customCss = settings.today_custom_css || "";
+}
+
+function parseLayout(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function renderLayoutEditor() {
+  const mode = state.layoutMode === "manual" ? "manual" : "auto";
+  const radio = $(`input[name="layout-mode"][value="${mode}"]`);
+  if (radio) radio.checked = true;
+  $("#layout-columns").value = state.todayColumns || "4";
+  $("#layout-css").value = state.customCss || "";
+
+  $("#layout-cards").innerHTML = layoutState().map((card, index) => `
+    <div class="layout-card" data-layout-card="${escapeHtml(card.id)}" draggable="true">
+      <span class="layout-grip" aria-hidden="true">⠿</span>
+      <div>
+        <p class="layout-card-name">${escapeHtml(card.name)}</p>
+        <p class="layout-card-hint">${escapeHtml(card.hint)}${card.hidden ? " · skjult" : ""}</p>
+        <div class="layout-card-controls">
+          <label>Brede
+            <select data-layout-field="span">${[1, 2, 3, 4].map((n) => `<option value="${n}" ${Number(card.span) === n ? "selected" : ""}>${n} kolonne${n > 1 ? "r" : ""}</option>`).join("")}</select>
+          </label>
+          <label>Højde
+            <select data-layout-field="row">${[[0, "indhold"], [1, "1 række"], [2, "2 rækker"], [3, "3 rækker"]].map(([n, label]) => `<option value="${n}" ${Number(card.row) === n ? "selected" : ""}>${label}</option>`).join("")}</select>
+          </label>
+          <label>Tekst
+            <select data-layout-field="align">${[["left", "venstre"], ["center", "centreret"], ["right", "højre"]].map(([n, label]) => `<option value="${n}" ${card.align === n ? "selected" : ""}>${label}</option>`).join("")}</select>
+          </label>
+          <label>Indhold
+            <select data-layout-field="valign">${[["top", "øverst"], ["center", "centreret"], ["bottom", "nederst"]].map(([n, label]) => `<option value="${n}" ${card.valign === n ? "selected" : ""}>${label}</option>`).join("")}</select>
+          </label>
+          <label class="check-label"><input type="checkbox" data-layout-field="hidden" ${card.hidden ? "checked" : ""}> Skjul</label>
+        </div>
+        <p class="layout-card-preview">${layoutPreview(card, index)}</p>
+      </div>
+    </div>`).join("");
+}
+
+function layoutPreview(card, index) {
+  const parts = [`${Number(card.span) || 1} kolonne${Number(card.span) > 1 ? "r" : ""}`];
+  if (Number(card.row) > 0) parts.push(`${card.row} rækker høj`);
+  parts.push(card.align === "center" ? "tekst centreret" : card.align === "right" ? "tekst højre" : "tekst venstre");
+  if (card.valign !== "top") parts.push(card.valign === "center" ? "indhold centreret" : "indhold nederst");
+  if (card.hidden) parts.push("skjult på I dag");
+  return `Plads ${index + 1} · ${parts.join(" · ")}`;
+}
+
+/// Sætter layoutet på den rigtige I dag-side. Manuelt betyder, at kortene
+/// følger rækkefølge og størrelser fra editoren.
+function applyTodayLayout() {
+  const view = $('#view-today');
+  if (!view) return;
+  const manual = state.layoutMode === "manual";
+  view.dataset.layoutMode = manual ? "manual" : "auto";
+  view.style.setProperty("--fd-columns", String(Number(state.todayColumns) || 4));
+
+  layoutState().forEach((card, index) => {
+    const el = view.querySelector(`[data-card="${card.id}"]`);
+    if (!el) return;
+    el.style.order = String(index);
+    el.classList.toggle("is-hidden", !!card.hidden);
+    el.style.textAlign = card.align || "left";
+    el.style.justifyContent = card.valign === "center" ? "center" : card.valign === "bottom" ? "flex-end" : "flex-start";
+    if (!manual) {
+      el.style.gridColumn = "";
+      el.style.gridRow = "";
+      return;
+    }
+    const span = Math.max(1, Math.min(4, Number(card.span) || 1));
+    el.style.gridColumn = `span ${span}`;
+    el.style.gridRow = Number(card.row) > 0 ? `span ${Math.min(3, Number(card.row))}` : "";
+  });
+  applyCustomCss(state.customCss || "");
+}
+
+/// Egen CSS skal kun kunne ramme I dag-siden, så den ikke ødelægger resten.
+function applyCustomCss(css) {
+  let tag = $("#fd-custom-css");
+  if (!tag) {
+    tag = document.createElement("style");
+    tag.id = "fd-custom-css";
+    document.head.appendChild(tag);
+  }
+  tag.textContent = css || "";
+}
+
+/// Binder knapper, felter og træk-og-slip i layout-editoren.
+function bindLayoutEditor() {
+  const cards = $("#layout-cards");
+
+  cards.addEventListener("change", (event) => {
+    const field = event.target.dataset.layoutField;
+    if (!field) return;
+    const row = event.target.closest("[data-layout-card]");
+    const card = layoutState().find((item) => item.id === row.dataset.layoutCard);
+    if (!card) return;
+    state.layoutDirty = true;
+    if (field === "hidden") card.hidden = event.target.checked;
+    else if (field === "span" || field === "row") card[field] = Number(event.target.value);
+    else card[field] = event.target.value;
+    applyTodayLayout();
+    renderLayoutEditor();
+  });
+
+  // Træk-og-slip med HTML5, så rækkefølgen kan ændres uden ekstra bibliotek.
+  let dragged = null;
+  cards.addEventListener("dragstart", (event) => {
+    const row = event.target.closest("[data-layout-card]");
+    if (!row) return;
+    dragged = row;
+    row.classList.add("dragging");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", row.dataset.layoutCard);
+  });
+  cards.addEventListener("dragend", () => {
+    if (dragged) dragged.classList.remove("dragging");
+    $$(".layout-card.drop-target", cards).forEach((el) => el.classList.remove("drop-target"));
+    dragged = null;
+  });
+  cards.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    const row = event.target.closest("[data-layout-card]");
+    if (!row || row === dragged) return;
+    $$(".layout-card.drop-target", cards).forEach((el) => el.classList.remove("drop-target"));
+    row.classList.add("drop-target");
+  });
+  cards.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const row = event.target.closest("[data-layout-card]");
+    if (!row || !dragged || row === dragged) return;
+    const items = layoutState();
+    const from = items.findIndex((item) => item.id === dragged.dataset.layoutCard);
+    const to = items.findIndex((item) => item.id === row.dataset.layoutCard);
+    if (from < 0 || to < 0) return;
+    state.layoutDirty = true;
+    const [moved] = items.splice(from, 1);
+    items.splice(to, 0, moved);
+    applyTodayLayout();
+    renderLayoutEditor();
+  });
+
+  $$('input[name="layout-mode"]').forEach((radio) => radio.addEventListener("change", (event) => {
+    if (!event.target.checked) return;
+    state.layoutMode = event.target.value;
+    state.layoutDirty = true;
+    applyTodayLayout();
+  }));
+
+  $("#layout-columns").addEventListener("input", (event) => {
+    const value = Math.max(1, Math.min(8, Number(event.target.value) || 4));
+    state.todayColumns = String(value);
+    state.layoutDirty = true;
+    applyTodayLayout();
+  });
+
+  $("#layout-save").addEventListener("click", async () => {
+    const css = $("#layout-css").value;
+    state.customCss = css;
+    state.layoutDirty = true;
+    applyCustomCss(css);
+    await api("/api/settings", {
+      method: "PATCH",
+      body: {
+        today_layout_mode: state.layoutMode,
+        today_layout: JSON.stringify(layoutState().map(({ id, span, row, align, valign, hidden }) => ({ id, span, row, align, valign, hidden }))),
+        today_columns: Math.max(1, Math.min(8, Number(state.todayColumns) || 4)),
+        today_custom_css: css,
+      },
+    });
+    state.layoutDirty = false;
+    showToast("Layout gemt");
+  });
+
+  $("#layout-reset").addEventListener("click", async () => {
+    state.layout = LAYOUT_CARDS.map((card) => ({ ...card }));
+    state.layoutMode = "auto";
+    state.todayColumns = "4";
+    state.customCss = "";
+    state.layoutDirty = false;
+    applyTodayLayout();
+    renderLayoutEditor();
+    await api("/api/settings", {
+      method: "PATCH",
+      body: {
+        today_layout_mode: "auto",
+        today_layout: JSON.stringify(layoutState()),
+        today_columns: 4,
+        today_custom_css: "",
+      },
+    });
+    showToast("Layout nulstillet til standard");
+  });
+
+  $("#layout-css-apply").addEventListener("click", () => {
+    state.customCss = $("#layout-css").value;
+    state.layoutDirty = true;
+    applyCustomCss(state.customCss);
+    showToast("CSS anvendt");
+  });
+  $("#layout-css-clear").addEventListener("click", () => {
+    $("#layout-css").value = "";
+    state.customCss = "";
+    state.layoutDirty = true;
+    applyCustomCss("");
+  });
+  $("#layout-css").addEventListener("input", (event) => {
+    if (!$("#layout-css-live").checked) return;
+    state.customCss = event.target.value;
+    applyCustomCss(state.customCss);
+  });
 }
 
 function renderSettings(summary) {
@@ -763,6 +1024,10 @@ function showView(view) {
   if (target === "calendar") loadCalendarEvents();
   if (target === "school") loadSchoolEvents();
   if (target === "cameras") loadCameras(true);
+  if (target === "layout") {
+    if (state.layout) renderLayoutEditor();
+    loadSummary(true);
+  }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -929,6 +1194,7 @@ function bindEvents() {
   $("#refresh-button").addEventListener("click", () => loadSummary());
   $("#settings-shortcut").addEventListener("click", () => showView("settings"));
   $("#logout-button").addEventListener("click", async () => { await api("/api/auth/logout", { method: "POST" }).catch(() => {}); showLogin(); });
+  bindLayoutEditor();
   $("#add-calendar-button").addEventListener("click", () => openCalendarModal(null, "calendar"));
   $("#add-school-button").addEventListener("click", () => openCalendarModal(null, "school"));
   $("#add-birthday-button").addEventListener("click", () => openBirthdayModal());

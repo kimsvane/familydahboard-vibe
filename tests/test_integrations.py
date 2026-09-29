@@ -1,5 +1,6 @@
 import asyncio
 import email
+import json
 import logging
 import os
 import pathlib
@@ -1314,3 +1315,64 @@ def test_http_client_logging_is_not_debug():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == [str(logging.WARNING), str(logging.WARNING)]
+
+
+def test_today_layout_settings_roundtrip_and_validation(tmp_path):
+    old_database = main.database
+    old_synchronizer_database = main.synchronizer.database
+    database = Database(tmp_path / "layout-api.db")
+    main.database = database
+    main.synchronizer.database = database
+    try:
+        with TestClient(main.app) as client:
+            headers = _auth_client(client)
+            layout = [
+                {"id": "hero", "span": 2, "row": 1, "align": "center", "valign": "top", "hidden": False},
+                {"id": "checklist", "span": 1, "row": 2, "align": "left", "valign": "top", "hidden": True},
+            ]
+            response = client.patch(
+                "/api/settings",
+                json={
+                    "today_layout_mode": "manual",
+                    "today_layout": json.dumps(layout),
+                    "today_columns": 5,
+                    "today_custom_css": "#view-today .hero-card { gap: 40px; }",
+                },
+                headers=headers,
+            )
+            assert response.status_code == 200
+            settings = response.json()["settings"]
+            assert settings["today_layout_mode"] == "manual"
+            assert json.loads(settings["today_layout"]) == layout
+            assert settings["today_columns"] == "5"
+            assert "gap: 40px" in settings["today_custom_css"]
+
+            # Layoutet skal være gyldig JSON, ellers ville alle kort forsvinde.
+            assert client.patch(
+                "/api/settings", json={"today_layout": "{ikke json"}, headers=headers
+            ).status_code == 422
+            assert client.patch(
+                "/api/settings", json={"today_layout": '{"id": "hero"}'}, headers=headers
+            ).status_code == 422
+            assert client.patch(
+                "/api/settings", json={"today_layout": json.dumps([{"id": f"c{i}"} for i in range(41)])},
+                headers=headers,
+            ).status_code == 422
+
+            # Kun auto og manual er gyldige tilstande, og kolonner skal være 1-8.
+            assert client.patch(
+                "/api/settings", json={"today_layout_mode": "tilfældig"}, headers=headers
+            ).status_code == 422
+            assert client.patch(
+                "/api/settings", json={"today_columns": 0}, headers=headers
+            ).status_code == 422
+            assert client.patch(
+                "/api/settings", json={"today_columns": 9}, headers=headers
+            ).status_code == 422
+
+            # Det gemte layout skal komme med i summary, så browseren kan anvende det.
+            summary = client.get("/api/dashboard/summary?days=14").json()
+            assert summary["settings"]["today_layout_mode"] == "manual"
+    finally:
+        main.database = old_database
+        main.synchronizer.database = old_synchronizer_database

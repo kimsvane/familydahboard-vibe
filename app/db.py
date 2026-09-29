@@ -234,6 +234,10 @@ class Database:
             "header_title",
             "greeting",
             "log_level",
+            "today_layout_mode",
+            "today_layout",
+            "today_columns",
+            "today_custom_css",
         }
         with self.connection() as connection:
             for key, value in values.items():

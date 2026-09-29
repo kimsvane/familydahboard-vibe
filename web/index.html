@@ -55,12 +55,13 @@
       <button class="nav-button" data-view="widgets" type="button">Widgets</button>
       <button class="nav-button" data-view="cameras" type="button">Kameraer</button>
       <button class="nav-button" data-view="settings" type="button">Indstillinger</button>
+      <button class="nav-button" data-view="layout" type="button">Layout</button>
     </nav>
 
     <main class="content">
       <section id="view-today" class="view active" data-view-panel="today">
         <div class="hero-grid">
-          <article class="hero-card panel">
+          <article class="hero-card panel" data-card="hero">
             <div>
               <p class="eyebrow" id="hero-greeting">Godmorgen</p>
               <h1 id="hero-title">Familietid</h1>
@@ -71,12 +72,12 @@
               <div><strong id="weather-temperature">--°</strong><span id="weather-location">Vejr</span></div>
             </div>
           </article>
-          <article class="stat-card panel">
+          <article class="stat-card panel" data-card="stat-events">
             <span class="stat-label">Familieaftaler i dag</span>
             <strong class="stat-value" id="today-event-count">0</strong>
             <span class="stat-foot" id="today-event-foot">Ingen aftaler</span>
           </article>
-          <article class="stat-card panel birthday-stat">
+          <article class="stat-card panel birthday-stat" data-card="stat-birthday">
             <span class="stat-label">Næste fødselsdag</span>
             <strong class="stat-value" id="next-birthday-count">—</strong>
             <span class="stat-foot" id="next-birthday-name">Endnu ingen fødselsdage</span>
@@ -84,32 +85,32 @@
         </div>
 
         <div class="dashboard-grid">
-          <article class="panel span-2">
+          <article data-card="calendar" class="panel span-2">
             <div class="panel-heading">
               <div><p class="eyebrow">Næste dage</p><h2>Familiekalender</h2></div>
               <button class="text-button" data-view-link="calendar" type="button">Åbn kalender →</button>
             </div>
             <div id="today-events" class="event-list"></div>
           </article>
-          <article class="panel">
+          <article data-card="school" class="panel">
             <div class="panel-heading">
               <div><p class="eyebrow">I skolen</p><h2>Skoleskema</h2></div>
               <button class="text-button" data-view-link="school" type="button">Se skemaer →</button>
             </div>
             <div id="today-school-events" class="event-list"></div>
           </article>
-          <article class="panel">
+          <article data-card="birthdays" class="panel">
             <div class="panel-heading">
               <div><p class="eyebrow">Det er værd at huske</p><h2>Fødselsdage</h2></div>
               <button class="text-button" data-view-link="birthdays" type="button">Se alle →</button>
             </div>
             <div id="today-birthdays" class="birthday-list"></div>
           </article>
-          <article class="panel">
+          <article data-card="members" class="panel">
             <div class="panel-heading"><div><p class="eyebrow">Hjemme</p><h2>Familien</h2></div></div>
             <div id="today-members" class="member-list"></div>
           </article>
-          <article class="panel">
+          <article data-card="checklist" class="panel">
             <div class="panel-heading"><div><p class="eyebrow">Små opgaver</p><h2>Checkliste</h2></div></div>
             <form id="quick-checklist-form" class="inline-form">
               <input id="quick-checklist-input" type="text" placeholder="Tilføj en opgave" maxlength="500" aria-label="Ny opgave">
@@ -117,7 +118,7 @@
             </form>
             <div id="today-checklist" class="checklist"></div>
           </article>
-          <article class="panel" id="icloud-note-card" hidden>
+          <article class="panel" id="icloud-note-card" data-card="icloud-note" hidden>
             <div class="panel-heading"><div><p class="eyebrow">Fra iCloud</p><h2 id="icloud-note-title">iCloud-note</h2></div><button class="icon-button" id="icloud-note-edit" type="button" aria-label="Rediger iCloud-note" title="Rediger">✎</button></div>
             <div id="today-icloud-note" class="icloud-note-body"><p class="muted small-copy">Indlæser…</p></div>
           </article>
@@ -207,6 +208,41 @@
           <div class="panel-heading"><div><p class="eyebrow">Seneste hændelser</p><h2>Aktivitetslog</h2></div></div>
           <div id="camera-activity-list" class="activity-list"></div>
         </div>
+      </section>
+
+      <section id="view-layout" class="view" data-view-panel="layout">
+        <div class="section-heading">
+          <div><p class="eyebrow">I dag-siden</p><h1>Layout</h1></div>
+          <div class="section-actions">
+            <button class="button secondary" id="layout-reset" type="button">Nulstil</button>
+            <button class="button primary" id="layout-save" type="button">Gem layout</button>
+          </div>
+        </div>
+        <p class="section-copy">Træk kortene i rækkefølge, og sæt hvor brede og høje de skal være. Vælg mellem automatisk og manuel placering, eller ret detaljer direkte i CSS'en nederst.</p>
+
+        <article class="panel settings-card">
+          <div class="panel-heading"><div><p class="eyebrow">Placering</p><h2>Automatisk eller manuel</h2></div></div>
+          <div class="layout-modes" role="radiogroup" aria-label="Layouttilstand">
+            <label class="layout-mode"><input type="radio" name="layout-mode" value="auto"><span><strong>Automatisk</strong><small>Kortene fordeler sig selv, som nu. Godt til at starte med.</small></span></label>
+            <label class="layout-mode"><input type="radio" name="layout-mode" value="manual"><span><strong>Manuel</strong><small>Dit layout bruges, og kortene følger den rækkefølge og de størrelser, du sætter.</small></span></label>
+          </div>
+          <label for="layout-columns">Antal kolonner på brede skærme</label>
+          <input id="layout-columns" type="number" min="1" max="8" step="1" value="4">
+        </article>
+
+        <article class="panel settings-card">
+          <div class="panel-heading"><div><p class="eyebrow">Rækkefølge og størrelse</p><h2>Kort</h2></div></div>
+          <p class="muted small-copy">Træk i håndtaget for at flytte et kort. Kortene vises i den rækkefølge, de står her.</p>
+          <div id="layout-cards" class="layout-cards"></div>
+        </article>
+
+        <article class="panel settings-card">
+          <div class="panel-heading"><div><p class="eyebrow">Egen CSS</p><h2>Ret detaljer selv</h2></div></div>
+          <p class="muted small-copy">Alt ovenfor låser layoutet fast, så her kan du rydde op i det, koden ellers bestemmer. Skriv CSS mod <code>#view-today</code>. Det anvendes med det samme, så du kan se effekten på I dag-siden.</p>
+          <label class="check-label"><input type="checkbox" id="layout-css-live"> Anvend mens jeg skriver</label>
+          <textarea id="layout-css" rows="12" spellcheck="false" placeholder="Eksempel:&#10;#view-today .hero-card { justify-content: flex-start; }&#10;#view-today .stat-value { font-size: 2.6rem; }"></textarea>
+          <div class="field-actions"><button class="button secondary" id="layout-css-apply" type="button">Anvend CSS</button><button class="button secondary" id="layout-css-clear" type="button">Ryd CSS</button></div>
+        </article>
       </section>
 
       <section id="view-settings" class="view" data-view-panel="settings">

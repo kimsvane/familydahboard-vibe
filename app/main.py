@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -660,6 +661,17 @@ async def update_settings_route(payload: SettingsUpdate) -> dict[str, Any]:
             values["reminders_bridge_url"] = normalize_bridge_url(values["reminders_bridge_url"])
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if "today_layout" in values and values["today_layout"]:
+        # Layout gemmes som JSON-streng, så browseren kan sende den uændret
+        # videre. Ugyldig JSON afvises, ellers ville alle kort forsvinde.
+        try:
+            parsed = json.loads(values["today_layout"])
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail="Layout er ikke gyldig JSON") from exc
+        if not isinstance(parsed, list):
+            raise HTTPException(status_code=422, detail="Layout skal være en liste af kort")
+        if len(parsed) > 40:
+            raise HTTPException(status_code=422, detail="Layout har for mange kort")
     if values.get("reminders_source") == "bridge":
         missing = [
             key
