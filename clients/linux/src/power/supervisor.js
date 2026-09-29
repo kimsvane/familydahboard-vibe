@@ -2,6 +2,7 @@
 
 const { DEFAULTS, decide } = require('./policy');
 const { readAmbientLight } = require('../sensors/iio');
+const { OrientationTracker } = require('../sensors/orientation');
 const screen = require('./screen');
 
 const POLL_MS = 5000;
@@ -34,10 +35,16 @@ class WallSupervisor {
     this.onChange = options.onChange ?? (() => {});
     this.onSleep = options.onSleep ?? (() => {});
     this.onWake = options.onWake ?? (() => {});
+    this.log = options.log ?? (() => {});
     this.forcedOff = false;
     this.presenceEnabled = options.presenceEnabled ?? false;
     this.readLight = options.readLight ?? readAmbientLight;
     this.screenControl = options.screenControl ?? screen;
+    this.orientation = new OrientationTracker({
+      readAcceleration: options.readAcceleration,
+      current: options.appliedRotation ?? null,
+    });
+    this.appliedRotation = options.appliedRotation ?? null;
   }
 
   start() {
@@ -131,14 +138,40 @@ class WallSupervisor {
       this.onSleep(decision);
     }
 
+    this.syncRotation();
     this.onChange(this.snapshot(light));
     return decision;
+  }
+
+  /// Skærmen skal følge enhedens hældning, eller stå fast i en valgt
+  /// retning. Der drejes kun, når den faktisk er anderledes end den er nu,
+  /// fordi hver drejning får billedet til at blinke.
+  syncRotation() {
+    const valg = this.settings?.display?.rotation;
+    if (valg === undefined || valg === null) return;
+
+    let maal = null;
+    if (valg === 'static') {
+      maal = this.settings?.display?.staticRotation ?? 'none';
+    } else if (valg === 'auto') {
+      maal = this.orientation.read();
+    }
+    if (!maal || maal === this.appliedRotation) return;
+
+    this.appliedRotation = maal;
+    this.screenControl.setRotation?.(maal, (error) => {
+      if (error) {
+        this.appliedRotation = null;
+        this.log?.(`Kunne ikke dreje skærmen: ${error.message}`);
+      }
+    });
   }
 
   snapshot(light = null) {
     return {
       on: this.state.on,
       brightness: this.state.brightness,
+      rotation: this.appliedRotation,
       reason: this.state.reason,
       present: this.presenceDetected(),
       idleMinutes: Number.isFinite(this.idleMinutes()) ? Math.round(this.idleMinutes()) : null,

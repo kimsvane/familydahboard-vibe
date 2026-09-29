@@ -11,6 +11,11 @@ const DEFAULTS = Object.freeze({
     // Sekunder skærmen holdes tændt efter en bevægelse fra kameraet.
     motionLeaseSeconds: 60,
   },
+  display: {
+    // 'auto' følger den fysiske hældning, 'static' låser retningen.
+    rotation: 'auto',
+    staticRotation: 'none',
+  },
   brightness: {
     auto: true,
     darkLux: 5,

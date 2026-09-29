@@ -301,3 +301,97 @@ test('bevægelse fra kameraet vækker med samme dæmpede lysstyrke', () => {
   assert.equal(screenControl.calls.on, 1);
   assert.notEqual(screenControl.calls.brightnessOnWake, 100);
 });
+
+function roter(setup = {}) {
+  const fake = fakeScreen();
+  fake.rotation = [];
+  fake.setRotation = (name, callback) => {
+    fake.rotation.push(name);
+    if (setup.fail) callback?.(new Error('nægter'));
+    else callback?.(null);
+  };
+  return { fake };
+}
+
+function medRotation(indstillinger, setup = {}) {
+  const { fake } = roter(setup);
+  const supervisor = new WallSupervisor({
+    settings: { ...DEFAULTS, ...indstillinger },
+    screenControl: fake,
+    clock: () => new Date(2026, 0, 7, 12, 0, 0, 0),
+    readLight: () => ({ lux: 200 }),
+    readAcceleration: () => setup.accel ?? { x: 0, y: 0, z: 1 },
+  });
+  return { supervisor, fake };
+}
+
+const VENSTRE = { x: -1, y: 0, z: 0 };
+const HOEJRE = { x: 1, y: 0, z: 0 };
+const FLAD = { x: 0, y: 0, z: 1 };
+
+test('skærmen følger hældningen når rotation er auto', () => {
+  const { supervisor, fake } = medRotation({ display: { rotation: 'auto' } }, { accel: VENSTRE });
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, ['left']);
+});
+
+test('samme retning to gange drejer kun én gang', () => {
+  const { supervisor, fake } = medRotation({ display: { rotation: 'auto' } }, { accel: VENSTRE });
+  supervisor.tick();
+  supervisor.tick();
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, ['left'], 'hver drejning får billedet til at blinke');
+});
+
+test('skærmen drejer igen når hældningen ændrer sig', () => {
+  let accel = FLAD;
+  const { fake } = roter();
+  const supervisor = new WallSupervisor({
+    settings: { ...DEFAULTS, display: { rotation: 'auto' } },
+    screenControl: fake,
+    clock: () => new Date(2026, 0, 7, 12, 0, 0, 0),
+    readLight: () => ({ lux: 200 }),
+    readAcceleration: () => accel,
+  });
+  supervisor.tick();
+  accel = HOEJRE;
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, ['none', 'right']);
+});
+
+test('statisk rotation låser retningen, uanset hældningen', () => {
+  const { supervisor, fake } = medRotation(
+    { display: { rotation: 'static', staticRotation: 'inverted' } },
+    { accel: VENSTRE },
+  );
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, ['inverted']);
+});
+
+test('statisk rotation uden valgt vinkel bruger landskab', () => {
+  const { supervisor, fake } = medRotation({ display: { rotation: 'static' } });
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, ['none']);
+});
+
+test('er rotation ikke sat, røres skærmen ikke', () => {
+  const { fake } = roter();
+  const supervisor = new WallSupervisor({
+    settings: { ...DEFAULTS, display: undefined },
+    screenControl: fake,
+    clock: () => new Date(2026, 0, 7, 12, 0, 0, 0),
+    readLight: () => ({ lux: 200 }),
+    readAcceleration: () => VENSTRE,
+  });
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, [], 'skærmen må ikke drejes uden at det er bedt om');
+});
+
+test('er skærmen låst fra hånden, skal den kunne komme tilbage til samme retning', () => {
+  // Efter en fejl må den næste forsøg igen prøve, ellers bliver billedet
+  // fast i en forkert retning.
+  const { supervisor, fake } = medRotation({ display: { rotation: 'auto' } }, { accel: VENSTRE, fail: true });
+  supervisor.tick();
+  supervisor.tick();
+  assert.deepEqual(fake.rotation, ['left', 'left'], 'den skal prøve igen efter en fejl');
+});

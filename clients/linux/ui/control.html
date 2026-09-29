@@ -101,6 +101,28 @@
           <p class="hjælp" id="sensor-hjælp"></p>
         </fieldset>
 
+        <fieldset>
+          <legend>Skærmretning</legend>
+          <label class="kontakt">
+            <input type="radio" name="rotation" value="auto" id="rotation-auto">
+            <span>Følg med når enheden drejes</span>
+          </label>
+          <label class="kontakt">
+            <input type="radio" name="rotation" value="static" id="rotation-static">
+            <span>Hold fast i én retning</span>
+          </label>
+          <div class="række" id="rotation-felt">
+            <label for="rotation-static-value">Retning</label>
+            <select id="rotation-static-value">
+              <option value="none">Landskab</option>
+              <option value="left">Venstre side op</option>
+              <option value="right">Højre side op</option>
+              <option value="inverted">På hovedet</option>
+            </select>
+          </div>
+          <p class="hjælp">Når retningen følger enheden, læses hældningen af tyngdekraften. Skærmen drejes kun, når den faktisk er en anden vej, så billedet blinker ikke uden grund.</p>
+        </fieldset>
+
         <div class="actions">
           <button class="primary" type="submit">Gem vægindstillinger</button>
           <button class="secondary" id="screen-off-button" type="button">Sluk nu</button>

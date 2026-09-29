@@ -172,6 +172,10 @@ function readWallForm() {
       warmupGraceMinutes: 3,
       motionLeaseSeconds: currentWallSettings?.presence?.motionLeaseSeconds ?? 60,
     },
+    display: {
+      rotation: document.querySelector('#rotation-static')?.checked ? 'static' : 'auto',
+      staticRotation: currentWallSettings?.display?.staticRotation ?? 'none',
+    },
     brightness: {
       auto: document.querySelector('#brightness-auto')?.checked ?? true,
       darkLux: 5,
@@ -183,8 +187,26 @@ function readWallForm() {
   };
 }
 
+/// Den valgte retning hører til den låste visning. Når skærmen følger
+/// enheden, er der intet at vælge, og feltet grås derfor ud.
+function syncRotation() {
+  const fast = document.querySelector('#rotation-static')?.checked;
+  const felt = document.querySelector('#rotation-felt');
+  if (!felt) return;
+  felt.toggleAttribute('disabled', !fast);
+  felt.style.opacity = fast ? '1' : '0.5';
+  for (const element of felt.querySelectorAll('select, input')) {
+    element.disabled = !fast;
+  }
+}
+
 function fillWallForm(settings) {
   currentWallSettings = settings ?? null;
+  const rotation = settings?.display?.rotation ?? 'auto';
+  const rotationRadio = document.querySelector(`input[name="rotation"][value="${rotation}"]`);
+  if (rotationRadio) rotationRadio.checked = true;
+  const value = document.querySelector('#rotation-static-value');
+  if (value) value.value = settings?.display?.staticRotation ?? 'none';
   const radio = wallForm?.querySelector(`input[name="mode"][value="${settings?.mode ?? 'schedule'}"]`);
   if (radio) radio.checked = true;
 
@@ -211,6 +233,7 @@ function fillWallForm(settings) {
   });
 
   syncRelevance();
+  syncRotation();
 }
 
 // Tidsplanen er meningsløs i præsenstilstand, så den grås ud i stedet for
@@ -277,7 +300,10 @@ async function saveWall(event) {
 if (wallForm) {
   wallCard?.removeAttribute('hidden');
   wallForm.addEventListener('submit', saveWall);
-  wallForm.addEventListener('change', syncRelevance);
+  wallForm.addEventListener('change', () => {
+    syncRelevance();
+    syncRotation();
+  });
   document.querySelector('#screen-off-button')?.addEventListener('click', async () => {
     await api.setScreen({ on: false });
     setWallResult('Skærmen er slukket. Tryk på den for at vække den.', 'ok');

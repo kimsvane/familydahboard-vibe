@@ -65,11 +65,66 @@ function setBrightnessPercent(percent, device = backlightDevice()) {
   }
 }
 
+// kscreen-doctor farver sit output, så tallene ligger i escape-sekvenser.
+const ANSI = /\x1b\[[0-9;]*m/g;
+
+function stripAnsi(value) {
+  return String(value).replace(ANSI, '');
+}
+
 function kscreen(args, callback) {
-  execFile('kscreen-doctor', args, { timeout: 5000 }, (error) => callback(error));
+  // Både fejl og svar skal videregives, ellers kan intet læses tilbage.
+  execFile('kscreen-doctor', args, { timeout: 5000 }, (error, stdout) => callback(error, stdout));
+}
+
+// De fire rotationer kscreen-doctor forstår. Værdierne er bitflag, så det
+// er ikke tal der skal sammenlignes direkte.
+const ROTATIONS = Object.freeze({ none: 1, left: 2, inverted: 4, right: 8 });
+
+function readRotation(callback) {
+  kscreen(['-o'], (error, stdout) => {
+    if (error) {
+      callback(null);
+      return;
+    }
+    const match = stripAnsi(stdout).match(/Rotation:\s*(\d+)/);
+    if (!match) {
+      callback(null);
+      return;
+    }
+    const flag = Number(match[1]);
+    const name = Object.keys(ROTATIONS).find((key) => ROTATIONS[key] === flag) ?? null;
+    callback(name);
+  });
+}
+
+/// Bygger kommandoen til at tænde eller slukke skærmen.
+/// Der hænger ingen værdi på kommandoen: kscreen-doctor kender 'enable' og
+/// 'disable', men afviser 'enable 1' med "Unable to parse arguments".
+function buildDisplayCommand(output, enabled) {
+  return [`output.${output}.${enabled ? 'enable' : 'disable'}`];
+}
+
+/// Bygger kommandoen til at dreje skærmen. Rotation er en navngiven værdi,
+/// så det hedder output.eDP-1.rotation.left og ikke output.eDP-1.rotate 2.
+function buildRotationCommand(output, name) {
+  if (!Object.prototype.hasOwnProperty.call(ROTATIONS, name)) return null;
+  return [`output.${output}.rotation.${name}`];
+}
+
+function setRotation(name, callback = () => {}) {
+  const args = buildRotationCommand(ROTATION_OUTPUT, name);
+  if (!args) {
+    callback(new Error(`Ukendt rotation: ${name}`));
+    return;
+  }
+  kscreen(args, (error) => callback(error ?? null));
 }
 
 const DRM_ROOT = '/sys/class/drm';
+
+// Sættes når skærmen er fundet, så kommandoerne ikke skal lede hver gang.
+let ROTATION_OUTPUT = 'eDP-1';
 
 /// Finder de tilsluttede skærme gennem kernen. Det er den eneste kilde der
 /// altid svarer, også når kscreen-doctor er tavs, og derfor slås den først.
@@ -109,7 +164,7 @@ function displayOutputs(callback) {
       return;
     }
     const outputs = [];
-    for (const match of String(stdout).matchAll(/^Output:\s*\d+\s+(\S+)/gm)) {
+    for (const match of stripAnsi(stdout).matchAll(/Output:\s*\d+\s+(\S+)/g)) {
       outputs.push(match[1]);
     }
     callback(outputs);
@@ -117,7 +172,11 @@ function displayOutputs(callback) {
 }
 
 function primaryOutput(callback) {
-  displayOutputs((outputs) => callback(outputs[0] || null));
+  displayOutputs((outputs) => {
+    const valgt = outputs[0] || null;
+    if (valgt) ROTATION_OUTPUT = valgt;
+    callback(valgt);
+  });
 }
 
 /// Slår selve skærmen fra med DPMS. Det er strømbesparende, og i modsætning
@@ -128,7 +187,7 @@ function setDisplayEnabled(enabled, callback) {
       callback(new Error('Ingen skærm blev fundet af kscreen-doctor.'));
       return;
     }
-    kscreen([`output.${output}.enable`, enabled ? '1' : '0'], callback);
+    kscreen(buildDisplayCommand(output, enabled), callback);
   });
 }
 
@@ -171,8 +230,14 @@ function turnOn(percent, callback, device = backlightDevice()) {
 module.exports = {
   BACKLIGHT_ROOT,
   DRM_ROOT,
+  ROTATIONS,
   backlightDevice,
+  buildDisplayCommand,
+  buildRotationCommand,
   connectedOutputs,
+  readRotation,
+  setRotation,
+  stripAnsi,
   brightnessRange,
   canWriteBrightness,
   displayOutputs,

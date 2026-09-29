@@ -159,3 +159,41 @@ test('vaegning sætter den ønskede lysstyrke naar DPMS svarer', async () => {
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(fs.readFileSync(path.join(device, 'brightness'), 'utf8').trim(), '35');
 });
+
+test('farvekoder fjernes fra kscreenDoctors output', () => {
+  const rå = '\u001b[01;32mOutput: \u001b[0m1 eDP-1 199e\u001b[01;33m';
+  assert.equal(screen.stripAnsi(rå), 'Output: 1 eDP-1 199e');
+});
+
+test('taend og sluk har ingen vaerdi haengt paa kommandoen', () => {
+  assert.deepEqual(screen.buildDisplayCommand('eDP-1', true), ['output.eDP-1.enable']);
+  assert.deepEqual(screen.buildDisplayCommand('eDP-1', false), ['output.eDP-1.disable']);
+});
+
+test('rotation er et navn, ikke et tal', () => {
+  assert.deepEqual(screen.buildRotationCommand('eDP-1', 'left'), ['output.eDP-1.rotation.left']);
+  assert.deepEqual(screen.buildRotationCommand('eDP-1', 'none'), ['output.eDP-1.rotation.none']);
+});
+
+test('en ukendt rotation giver ingen kommando', () => {
+  assert.equal(screen.buildRotationCommand('eDP-1', 'diagonal'), null);
+  assert.equal(screen.buildRotationCommand('eDP-1', 'toString'), null);
+});
+
+test('de fire rotationer er de kscreenDoctor kender', () => {
+  assert.deepEqual(Object.keys(screen.ROTATIONS).sort(), ['inverted', 'left', 'none', 'right']);
+});
+
+test('rotation med et ukendt navn melder fejl i stedet for at gøre noget', (t, done) => {
+  screen.setRotation('diagonal', (error) => {
+    assert.match(String(error?.message ?? ''), /Ukendt rotation/);
+    done();
+  });
+});
+
+test('kscreen skal videregive sit svar, ellers kan intet læses tilbage', () => {
+  // Uden denne videresendelse ville readRotation altid svare null, fordi
+  // kscreen-doctor skriver sin information til stdout.
+  assert.equal(typeof screen.stripAnsi('\u001b[33mRotation: \u001b[0m\t1'), 'string');
+  assert.match(screen.stripAnsi('\u001b[33mRotation: \u001b[0m\t2'), /Rotation:\s*2/);
+});
