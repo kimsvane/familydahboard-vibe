@@ -4,19 +4,26 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { app, BrowserWindow, ipcMain, powerSaveBlocker, screen, session } = require('electron');
 const { checkServer } = require('./connection');
-const { readSettings, writeSettings } = require('./settings');
+const { readSettings, readWallSettings, writeSettings, writeWallSettings } = require('./settings');
 const { normalizeServerUrl, originOf } = require('./url');
+const { DEFAULTS } = require('./power/policy');
+const { WallSupervisor } = require('./power/supervisor');
+const screenControl = require('./power/screen');
+const iio = require('./sensors/iio');
 
 const uiDirectory = path.join(__dirname, '..', 'ui');
 let mainWindow = null;
 let controlWindow = null;
 let handleWindow = null;
+let wakeWindow = null;
 let settings = null;
+let wallSettings = DEFAULTS;
 let configurationError = '';
 let mode = 'starting';
 let retryTimer = null;
-let powerBlockerId = null;
 let isQuitting = false;
+let supervisor = null;
+let powerSaveBlockerId = null;
 
 app.setName('family-dashboard-kiosk');
 const userDataDirectoryPath = path.join(app.getPath('appData'), 'family-dashboard-kiosk');
@@ -27,6 +34,10 @@ function userDataDirectory() {
   return app.getPath('userData');
 }
 
+function screenControlBrightness() {
+  return screenControl.readBrightness();
+}
+
 function loadConfiguration() {
   try {
     settings = readSettings(userDataDirectory());
@@ -35,6 +46,7 @@ function loadConfiguration() {
     settings = null;
     configurationError = error.message;
   }
+  wallSettings = readWallSettings(userDataDirectory(), DEFAULTS);
 }
 
 function stateForRenderer() {
@@ -84,6 +96,85 @@ function hideHandle() {
   if (handleWindow && !handleWindow.isDestroyed() && handleWindow.isVisible()) {
     handleWindow.hide();
   }
+}
+
+/// Vågnevinduet ligger altid øverst og fanger ethvert tryk, når skærmen
+/// ellers er slukket. Det er den eneste måde at vække skærmen på, når
+/// dashboardet er en fjern server og intet er synligt.
+function createWakeWindow() {
+  wakeWindow = new BrowserWindow({
+    show: false,
+    frame: false,
+    fullscreen: true,
+    kiosk: true,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    enableLargerThanScreen: true,
+    hasShadow: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    focusable: true,
+    backgroundColor: '#05070f',
+    title: 'Tryk for at vække',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  wakeWindow.setAlwaysOnTop(true, 'screen-saver');
+  wakeWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  wakeWindow.loadFile(path.join(uiDirectory, 'wake.html'));
+  wakeWindow.on('closed', () => {
+    wakeWindow = null;
+  });
+  // En skærm der ikke kan modtage input er ubrugelig som vækkeflade.
+  wakeWindow.on('moved', () => {
+    if (wakeWindow && !wakeWindow.isDestroyed() && wakeWindow.isVisible()) {
+      wakeWindow.setBounds({ x: 0, y: 0 });
+    }
+  });
+}
+
+function showWakeWindow() {
+  if (!wakeWindow || wakeWindow.isDestroyed() || isQuitting) {
+    return;
+  }
+  if (controlWindow && !controlWindow.isDestroyed()) {
+    return;
+  }
+  if (!wakeWindow.isVisible()) {
+    wakeWindow.showInactive();
+    wakeWindow.focus();
+  }
+}
+
+function hideWakeWindow() {
+  if (wakeWindow && !wakeWindow.isDestroyed() && wakeWindow.isVisible()) {
+    wakeWindow.hide();
+  }
+}
+
+function startSupervisor() {
+  if (supervisor) {
+    supervisor.stop();
+  }
+  supervisor = new WallSupervisor({
+    settings: wallSettings,
+    onChange: (state) => {
+      for (const target of [controlWindow, wakeWindow]) {
+        if (target && !target.isDestroyed()) {
+          target.webContents.send('wall:state', state);
+        }
+      }
+    },
+    onSleep: () => showWakeWindow(),
+    onWake: () => hideWakeWindow(),
+  });
+  supervisor.start();
+  return supervisor;
 }
 
 function createHandleWindow() {
@@ -311,6 +402,25 @@ function registerIpcHandlers() {
     isQuitting = true;
     app.quit();
   });
+  ipcMain.handle('wall:get', () => ({
+    settings: wallSettings,
+    state: supervisor?.snapshot() ?? null,
+    sensors: iio.describeSensors(),
+    display: {
+      brightness: screenControlBrightness(),
+      writable: supervisor?.snapshot()?.sensors?.brightnessWritable ?? false,
+    },
+  }));
+  ipcMain.handle('wall:save', (_event, value) => {
+    wallSettings = writeWallSettings(userDataDirectory(), DEFAULTS, value);
+    supervisor?.updateSettings(wallSettings);
+    return wallSettings;
+  });
+  ipcMain.handle('wall:wake', () => {
+    supervisor?.registerTouch();
+    hideWakeWindow();
+    return true;
+  });
 }
 
 async function start() {
@@ -321,7 +431,11 @@ async function start() {
   registerIpcHandlers();
   createMainWindow();
   createHandleWindow();
-  powerBlockerId = powerSaveBlocker.start('prevent-display-sleep');
+  createWakeWindow();
+  // Skærmen må ikke gå i søvn på egen hånd. Hvor længe den lyser, styres
+  // af vægindstillingerne i stedet for af en fast blokering.
+  powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+  startSupervisor();
   screen.on('display-metrics-changed', positionHandle);
   if (settings) {
     await loadDashboard();
@@ -343,6 +457,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     isQuitting = true;
     clearRetry();
+    supervisor?.stop();
+    supervisor = null;
     if (powerBlockerId !== null) {
       powerSaveBlocker.stop(powerBlockerId);
       powerBlockerId = null;
