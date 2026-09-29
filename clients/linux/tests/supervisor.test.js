@@ -161,7 +161,7 @@ test('en manglende lyssensor giver ingen dæmpning frem for en fejl', () => {
   supervisor.clock = () => new Date(2026, 0, 7, 12, 0, 0, 0);
   assert.doesNotThrow(() => supervisor.tick());
   assert.equal(supervisor.state.on, true);
-  assert.equal(supervisor.state.brightness, DEFAULTS.brightness.minPercent);
+  assert.equal(supervisor.state.brightness, 100);
 });
 
 test('skærmen går i dvale selv om ingen nogensinde har rørt den', () => {
