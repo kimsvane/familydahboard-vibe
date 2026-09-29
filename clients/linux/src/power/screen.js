@@ -69,7 +69,40 @@ function kscreen(args, callback) {
   execFile('kscreen-doctor', args, { timeout: 5000 }, (error) => callback(error));
 }
 
+const DRM_ROOT = '/sys/class/drm';
+
+/// Finder de tilsluttede skærme gennem kernen. Det er den eneste kilde der
+/// altid svarer, også når kscreen-doctor er tavs, og derfor slås den først.
+function connectedOutputs(root = DRM_ROOT) {
+  let entries;
+  try {
+    entries = fs.readdirSync(root);
+  } catch (error) {
+    return [];
+  }
+  const outputs = [];
+  for (const entry of entries) {
+    // card1-eDP-1 -> eDP-1. Kort- og stiknumre er ikke det samme.
+    const name = entry.replace(/^card\d+-/, '');
+    try {
+      if (fs.readFileSync(path.join(root, entry, 'status'), 'utf8').trim() === 'connected') {
+        outputs.push(name);
+      }
+    } catch (error) {
+      // En stik der ikke kan læses, tæller ikke som tilsluttet.
+    }
+  }
+  // Det indbyggede panel skal altid være først.
+  return outputs.sort((a, b) => (a.startsWith('eDP') ? -1 : b.startsWith('eDP') ? 1 : 0));
+}
+
 function displayOutputs(callback) {
+  // Via eksporten, så kilden kan udskiftes i test.
+  const fromKernel = module.exports.connectedOutputs();
+  if (fromKernel.length > 0) {
+    callback(fromKernel);
+    return;
+  }
   execFile('kscreen-doctor', ['-o'], { timeout: 5000 }, (error, stdout) => {
     if (error) {
       callback([]);
@@ -101,21 +134,32 @@ function setDisplayEnabled(enabled, callback) {
 
 /// Slukker skærmen. Lysstyrken sættes også til nul, fordi nogle drivere
 /// gendanner den gamle værdi, når panelet tændes igen.
+/// Slukker skærmen. DPMS er forsøgt først, fordi det også gør billedet
+/// aktivt sort, men hvis kscreen-doctor ikke svarer, så er lysstyrken nul
+/// nok til at panelet går mørkt. Fejl her skal aldrig stoppe resten.
 function turnOff(callback) {
   setBrightnessPercent(0);
-  setDisplayEnabled(false, (error) => callback(error || null));
+  setDisplayEnabled(false, () => callback(null));
 }
 
-function turnOn(callback) {
-  setDisplayEnabled(true, () => {
-    setBrightnessPercent(100);
+/// Tænder skærmen igen. Lysstyrken sættes til den værdi, der er valgt for
+/// det lys der er i rummet, og ikke automatisk til hundrede.
+function turnOn(percent, callback) {
+  const finish = () => {
+    setBrightnessPercent(Number.isFinite(percent) ? percent : 100);
     callback(null);
-  });
+  };
+  setDisplayEnabled(true, finish);
+  // DPMS kan hænge. Skærmen må ikke blive sort, fordi et værktøj svarer
+  // for langsomt, så lysstyrken sættes uafhængigt af svaret.
+  setTimeout(finish, 3000);
 }
 
 module.exports = {
   BACKLIGHT_ROOT,
+  DRM_ROOT,
   backlightDevice,
+  connectedOutputs,
   brightnessRange,
   canWriteBrightness,
   displayOutputs,

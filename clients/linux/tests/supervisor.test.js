@@ -10,7 +10,12 @@ function fakeScreen() {
   const calls = { on: 0, off: 0, brightness: [] };
   return {
     calls,
-    turnOn(callback) { calls.on += 1; if (callback) callback(); },
+    turnOn(percent, callback) {
+      calls.on += 1;
+      calls.brightnessOnWake = percent;
+      if (typeof callback === 'function') callback();
+      else if (typeof percent === 'function') percent();
+    },
     turnOff(callback) { calls.off += 1; if (callback) callback(); },
     setBrightnessPercent(percent) { calls.brightness.push(percent); },
     canWriteBrightness() { return true; },
@@ -255,4 +260,44 @@ test('stop afbryder overvågningen, så processen kan afslutte rent', () => {
   assert.notEqual(supervisor.timer, null);
   supervisor.stop();
   assert.equal(supervisor.timer, null);
+});
+
+test('skærmen vækker med den lysstyrke der passer til rummet, ikke med fuld styrke', () => {
+  const { supervisor, screenControl } = build();
+  supervisor.clock = () => new Date(2026, 0, 7, 23, 30, 0, 0);
+  supervisor.readLight = () => ({ lux: 5 });
+  supervisor.tick();
+  assert.equal(screenControl.calls.off, 1, 'skærmen skal være slukket først');
+
+  supervisor.registerTouch();
+  assert.equal(screenControl.calls.on, 1);
+  assert.notEqual(screenControl.calls.brightnessOnWake, 100, 'et mørkt rum må ikke give fuld lysstyrke');
+  assert.ok(
+    screenControl.calls.brightnessOnWake >= 15 && screenControl.calls.brightnessOnWake <= 100,
+    `lysstyrken ${screenControl.calls.brightnessOnWake} skal ligge i det tilladte interval`,
+  );
+});
+
+test('vågning i et lyst rum må gerne give fuld lysstyrke', () => {
+  const { supervisor, screenControl } = build();
+  supervisor.clock = () => new Date(2026, 0, 7, 23, 30, 0, 0);
+  supervisor.readLight = () => ({ lux: 5000 });
+  supervisor.tick();
+  assert.equal(screenControl.calls.off, 1);
+
+  supervisor.registerTouch();
+  assert.equal(screenControl.calls.on, 1);
+  assert.equal(screenControl.calls.brightnessOnWake, 100);
+});
+
+test('bevægelse fra kameraet vækker med samme dæmpede lysstyrke', () => {
+  const { supervisor, screenControl } = build();
+  supervisor.clock = () => new Date(2026, 0, 7, 23, 30, 0, 0);
+  supervisor.readLight = () => ({ lux: 5 });
+  supervisor.tick();
+  assert.equal(screenControl.calls.off, 1);
+
+  supervisor.registerExternalPresence(30);
+  assert.equal(screenControl.calls.on, 1);
+  assert.notEqual(screenControl.calls.brightnessOnWake, 100);
 });

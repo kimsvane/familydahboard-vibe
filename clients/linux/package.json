@@ -86,6 +86,12 @@
       ],
       "afterInstall": "build/after-install.sh",
       "afterRemove": "build/after-remove.sh"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "build/backlight.rules",
+        "to": "backlight.rules"
+      }
+    ]
   }
 }

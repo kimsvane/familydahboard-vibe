@@ -26,3 +26,14 @@ NoDisplay=true
 X-GNOME-Autostart-enabled=true
 EOF
 chmod 0644 "$AUTOSTART_FILE"
+
+# Skærmlysstyringen skal være skrivbar uden root, ellers kan dashboardet
+# ikke dæmpe skærmen. Uden denne regel er filen rod-ejet igen efter boot.
+UDEV_RULE_SRC="$APP_DIR/resources/backlight.rules"
+UDEV_RULE_DST="/etc/udev/rules.d/99-surface-dashboard-backlight.rules"
+if [ -f "$UDEV_RULE_SRC" ]; then
+  install -d -m 0755 /etc/udev/rules.d
+  install -m 0644 "$UDEV_RULE_SRC" "$UDEV_RULE_DST"
+  udevadm control --reload-rules 2>/dev/null || true
+  udevadm trigger --subsystem-match=backlight --action=add 2>/dev/null || true
+fi

@@ -87,3 +87,51 @@ test('skrivning til en skrivebeskyttet enhed fejler rent', { skip: process.getui
   fs.chmodSync(path.join(device, 'brightness'), 0o444);
   assert.equal(screen.setBrightnessPercent(50, device), false);
 });
+
+function makeDrm(stik) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-drm-'));
+  for (const [navn, status] of Object.entries(stik)) {
+    fs.mkdirSync(path.join(root, navn));
+    fs.writeFileSync(path.join(root, navn, 'status'), `${status}\n`);
+  }
+  return root;
+}
+
+test('finder tilsluttede skaerme gennem kernen', () => {
+  const root = makeDrm({
+    'card1-DP-1': 'disconnected',
+    'card1-eDP-1': 'connected',
+    'card1-HDMI-A-1': 'disconnected',
+  });
+  assert.deepEqual(screen.connectedOutputs(root), ['eDP-1']);
+});
+
+test('laeser kortsuffikset vaek, saa eDP-1 ikke bliver til card1-eDP-1', () => {
+  const root = makeDrm({ 'card0-eDP-1': 'connected' });
+  assert.deepEqual(screen.connectedOutputs(root), ['eDP-1']);
+});
+
+test('det indbyggede panel vaelges foer et eksternt skaerm', () => {
+  const root = makeDrm({ 'card1-HDMI-A-1': 'connected', 'card1-eDP-1': 'connected' });
+  assert.deepEqual(screen.connectedOutputs(root), ['eDP-1', 'HDMI-A-1']);
+});
+
+test('et stik der ikke kan laeses tæller ikke som tilsluttet', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-drm-'));
+  fs.mkdirSync(path.join(root, 'card1-eDP-1'));
+  assert.deepEqual(screen.connectedOutputs(root), []);
+});
+
+test('en manglende drm-rod giver ingen skaerme frem for at fejle', () => {
+  assert.deepEqual(screen.connectedOutputs('/sys/class/drm-finder-ikke'), []);
+});
+
+test('skærmen finder kernens svar selv naar kscreen-doctor er tavs', (t, done) => {
+  const original = screen.connectedOutputs;
+  t.after(() => { screen.connectedOutputs = original; });
+  screen.connectedOutputs = () => ['eDP-1'];
+  screen.primaryOutput((output) => {
+    assert.equal(output, 'eDP-1');
+    done();
+  });
+});

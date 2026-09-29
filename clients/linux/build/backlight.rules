@@ -1,0 +1,8 @@
+# Gør skærmlysstyringen på Surface Pro 4 skrivbar for almindelige brugere,
+# så vægdashboardet kan dæmpe og slukke skærmen uden root-rettigheder.
+#
+# Bemærk: MODE= virker ikke her. Filerna under /sys/class/backlight er
+# sysfs-attributfiler, og deres rettigheder kommer fra kernen, ikke fra
+# udev. Derfor sætter vi gruppe og rettigheder direkte på filen, når
+# enheden dukker op ved boot.
+ACTION=="add", KERNEL=="intel_backlight", SUBSYSTEM=="backlight", RUN+="/bin/sh -c 'chgrp video /sys/class/backlight/%k/brightness; chmod 0664 /sys/class/backlight/%k/brightness'"

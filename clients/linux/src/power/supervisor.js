@@ -119,7 +119,9 @@ class WallSupervisor {
 
     if (decision.on) {
       if (!wasOn) {
-        this.screenControl.turnOn(() => {});
+        // Skærmen vågner med den lysstyrke der passer til lyset i rummet,
+        // så den ikke blinker hvid i et mørkt køkken.
+        this.screenControl.turnOn(decision.brightness, () => {});
         this.onWake(decision);
       } else if (firstRun || brightnessChanged) {
         this.screenControl.setBrightnessPercent(decision.brightness);
