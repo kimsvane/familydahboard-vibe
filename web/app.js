@@ -22,6 +22,7 @@ const state = {
   todayColumns: "4",
   customCss: "",
   layoutDirty: false,
+  selectedCard: null,
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -348,23 +349,30 @@ function renderFrames(frames) {
 
 /* ================= Layout-editor for I dag-siden ================= */
 
+/* Kortene ligger i procent af skærmen, så miniature-editoren og den rigtige
+   I dag-side bruger præcis de samme tal. */
 const LAYOUT_CARDS = [
-  { id: "hero", name: "Vejr, overskrift og tagline", hint: "Hero-kortet", span: 1, row: 1, align: "left", valign: "top", hidden: false },
-  { id: "stat-events", name: "Familieaftaler i dag", hint: "Stat-kort", span: 1, row: 1, align: "left", valign: "top", hidden: false },
-  { id: "stat-birthday", name: "Næste fødselsdag", hint: "Stat-kort", span: 1, row: 1, align: "left", valign: "top", hidden: false },
-  { id: "calendar", name: "Familiekalender", hint: "Næste dage", span: 2, row: 1, align: "left", valign: "top", hidden: false },
-  { id: "school", name: "Skoleskema", hint: "I skolen", span: 1, row: 1, align: "left", valign: "top", hidden: false },
-  { id: "birthdays", name: "Fødselsdage", hint: "Det er værd at huske", span: 1, row: 1, align: "left", valign: "top", hidden: false },
-  { id: "members", name: "Familien", hint: "Hjemme", span: 1, row: 1, align: "left", valign: "top", hidden: false },
-  { id: "checklist", name: "Små opgaver", hint: "Checkliste", span: 1, row: 1, align: "left", valign: "top", hidden: false },
-  { id: "icloud-note", name: "Note fra iCloud", hint: "Fra iCloud", span: 1, row: 1, align: "left", valign: "top", hidden: false },
+  { id: "hero", name: "Vejr, overskrift og tagline", hint: "Hero-kortet", x: 0, y: 0, w: 40, h: 30, align: "left", valign: "top", hidden: false },
+  { id: "stat-events", name: "Familieaftaler i dag", hint: "Stat-kort", x: 41, y: 0, w: 28, h: 30, align: "left", valign: "top", hidden: false },
+  { id: "stat-birthday", name: "Næste fødselsdag", hint: "Stat-kort", x: 70, y: 0, w: 30, h: 30, align: "left", valign: "top", hidden: false },
+  { id: "calendar", name: "Familiekalender", hint: "Næste dage", x: 0, y: 31, w: 40, h: 34, align: "left", valign: "top", hidden: false },
+  { id: "school", name: "Skoleskema", hint: "I skolen", x: 41, y: 31, w: 28, h: 34, align: "left", valign: "top", hidden: false },
+  { id: "birthdays", name: "Fødselsdage", hint: "Det er værd at huske", x: 70, y: 31, w: 30, h: 34, align: "left", valign: "top", hidden: false },
+  { id: "members", name: "Familien", hint: "Hjemme", x: 0, y: 66, w: 40, h: 34, align: "left", valign: "top", hidden: false },
+  { id: "checklist", name: "Små opgaver", hint: "Checkliste", x: 41, y: 66, w: 28, h: 34, align: "left", valign: "top", hidden: false },
+  { id: "icloud-note", name: "Note fra iCloud", hint: "Fra iCloud", x: 70, y: 66, w: 30, h: 34, align: "left", valign: "top", hidden: false },
 ];
+
+const LAYOUT_MIN_W = 8;
+const LAYOUT_MIN_H = 5;
+
+function defaultLayout() {
+  return LAYOUT_CARDS.map((card) => ({ ...card }));
+}
 
 /// Gemmer det, brugeren har ændret, så det kan sendes til serveren.
 function layoutState() {
-  if (!state.layout) {
-    state.layout = LAYOUT_CARDS.map((card) => ({ ...card }));
-  }
+  if (!state.layout) state.layout = defaultLayout();
   return state.layout;
 }
 
@@ -376,10 +384,13 @@ function loadLayout(settings) {
   if (state.layoutDirty) return;
   const stored = parseLayout(settings.today_layout);
   const byId = new Map((stored || []).map((item) => [item.id, item]));
-  state.layout = LAYOUT_CARDS.map((card) => ({ ...card, ...(byId.get(card.id) || {}) }));
+  state.layout = LAYOUT_CARDS.map((card) => clampCard({ ...card, ...(byId.get(card.id) || {}) }));
   state.layoutMode = settings.today_layout_mode === "manual" ? "manual" : "auto";
   state.todayColumns = String(Number(settings.today_columns) || 4);
   state.customCss = settings.today_custom_css || "";
+  if (state.selectedCard && !state.layout.some((item) => item.id === state.selectedCard)) {
+    state.selectedCard = null;
+  }
 }
 
 function parseLayout(raw) {
@@ -392,6 +403,27 @@ function parseLayout(raw) {
   }
 }
 
+function num(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/// Holder et kort inden for skærmen, så intet kan trækkes ud af kanvas.
+function clampCard(card) {
+  const w = Math.min(100, Math.max(LAYOUT_MIN_W, num(card.w, 25)));
+  const h = Math.min(100, Math.max(LAYOUT_MIN_H, num(card.h, 30)));
+  return {
+    ...card,
+    w,
+    h,
+    x: Math.min(100 - w, Math.max(0, num(card.x, 0))),
+    y: Math.min(100 - h, Math.max(0, num(card.y, 0))),
+    align: ["left", "center", "right"].includes(card.align) ? card.align : "left",
+    valign: ["top", "center", "bottom"].includes(card.valign) ? card.valign : "top",
+    hidden: !!card.hidden,
+  };
+}
+
 function renderLayoutEditor() {
   const mode = state.layoutMode === "manual" ? "manual" : "auto";
   const radio = $(`input[name="layout-mode"][value="${mode}"]`);
@@ -399,65 +431,54 @@ function renderLayoutEditor() {
   $("#layout-columns").value = state.todayColumns || "4";
   $("#layout-css").value = state.customCss || "";
 
-  $("#layout-cards").innerHTML = layoutState().map((card, index) => `
-    <div class="layout-card" data-layout-card="${escapeHtml(card.id)}" draggable="true">
-      <span class="layout-grip" aria-hidden="true">⠿</span>
-      <div>
-        <p class="layout-card-name">${escapeHtml(card.name)}</p>
-        <p class="layout-card-hint">${escapeHtml(card.hint)}${card.hidden ? " · skjult" : ""}</p>
-        <div class="layout-card-controls">
-          <label>Brede
-            <select data-layout-field="span">${[1, 2, 3, 4].map((n) => `<option value="${n}" ${Number(card.span) === n ? "selected" : ""}>${n} kolonne${n > 1 ? "r" : ""}</option>`).join("")}</select>
-          </label>
-          <label>Højde
-            <select data-layout-field="row">${[[0, "indhold"], [1, "1 række"], [2, "2 rækker"], [3, "3 rækker"]].map(([n, label]) => `<option value="${n}" ${Number(card.row) === n ? "selected" : ""}>${label}</option>`).join("")}</select>
-          </label>
-          <label>Tekst
-            <select data-layout-field="align">${[["left", "venstre"], ["center", "centreret"], ["right", "højre"]].map(([n, label]) => `<option value="${n}" ${card.align === n ? "selected" : ""}>${label}</option>`).join("")}</select>
-          </label>
-          <label>Indhold
-            <select data-layout-field="valign">${[["top", "øverst"], ["center", "centreret"], ["bottom", "nederst"]].map(([n, label]) => `<option value="${n}" ${card.valign === n ? "selected" : ""}>${label}</option>`).join("")}</select>
-          </label>
-          <label class="check-label"><input type="checkbox" data-layout-field="hidden" ${card.hidden ? "checked" : ""}> Skjul</label>
-        </div>
-        <p class="layout-card-preview">${layoutPreview(card, index)}</p>
-      </div>
+  const canvas = $("#layout-canvas");
+  canvas.style.setProperty("--fd-cols", String(Number(state.todayColumns) || 4));
+  canvas.innerHTML = layoutState().map((card) => `
+    <div class="layout-window${card.id === state.selectedCard ? " selected" : ""}${card.hidden ? " is-hidden" : ""}"
+         data-layout-card="${escapeHtml(card.id)}" style="left:${card.x}%;top:${card.y}%;width:${card.w}%;height:${card.h}%">
+      <span class="layout-window-name">${escapeHtml(card.name)}</span>
+      <span class="layout-window-size">${Math.round(card.w)}×${Math.round(card.h)}</span>
+      <span class="layout-window-handle" data-layout-resize aria-hidden="true"></span>
     </div>`).join("");
+  renderLayoutToolbar();
 }
 
-function layoutPreview(card, index) {
-  const parts = [`${Number(card.span) || 1} kolonne${Number(card.span) > 1 ? "r" : ""}`];
-  if (Number(card.row) > 0) parts.push(`${card.row} rækker høj`);
-  parts.push(card.align === "center" ? "tekst centreret" : card.align === "right" ? "tekst højre" : "tekst venstre");
-  if (card.valign !== "top") parts.push(card.valign === "center" ? "indhold centreret" : "indhold nederst");
-  if (card.hidden) parts.push("skjult på I dag");
-  return `Plads ${index + 1} · ${parts.join(" · ")}`;
+function renderLayoutToolbar() {
+  const card = layoutState().find((item) => item.id === state.selectedCard);
+  $("#layout-selected-name").textContent = card ? card.name : "Ingen kort valgt";
+  $("#layout-selected-hint").textContent = card
+    ? `${card.hint} · ${Math.round(card.x)}, ${Math.round(card.y)} · ${Math.round(card.w)} bred × ${Math.round(card.h)} høj`
+    : "Klik på et kort ovenfor.";
+  $("#layout-align").value = card?.align || "left";
+  $("#layout-valign").value = card?.valign || "top";
+  $("#layout-hidden").checked = !!card?.hidden;
+  ["#layout-align", "#layout-valign", "#layout-hidden", "#layout-fit"].forEach((sel) => {
+    $(sel).disabled = !card;
+  });
 }
 
 /// Sætter layoutet på den rigtige I dag-side. Manuelt betyder, at kortene
-/// følger rækkefølge og størrelser fra editoren.
+/// placeres frit i procent, præcis som de står i miniature-editoren.
 function applyTodayLayout() {
-  const view = $('#view-today');
+  const view = $("#view-today");
   if (!view) return;
   const manual = state.layoutMode === "manual";
   view.dataset.layoutMode = manual ? "manual" : "auto";
-  view.style.setProperty("--fd-columns", String(Number(state.todayColumns) || 4));
 
-  layoutState().forEach((card, index) => {
+  layoutState().forEach((card) => {
     const el = view.querySelector(`[data-card="${card.id}"]`);
     if (!el) return;
-    el.style.order = String(index);
     el.classList.toggle("is-hidden", !!card.hidden);
     el.style.textAlign = card.align || "left";
     el.style.justifyContent = card.valign === "center" ? "center" : card.valign === "bottom" ? "flex-end" : "flex-start";
     if (!manual) {
-      el.style.gridColumn = "";
-      el.style.gridRow = "";
+      el.style.left = el.style.top = el.style.width = el.style.height = "";
       return;
     }
-    const span = Math.max(1, Math.min(4, Number(card.span) || 1));
-    el.style.gridColumn = `span ${span}`;
-    el.style.gridRow = Number(card.row) > 0 ? `span ${Math.min(3, Number(card.row))}` : "";
+    el.style.left = `${card.x}%`;
+    el.style.top = `${card.y}%`;
+    el.style.width = `${card.w}%`;
+    el.style.height = `${card.h}%`;
   });
   applyCustomCss(state.customCss || "");
 }
@@ -473,57 +494,110 @@ function applyCustomCss(css) {
   tag.textContent = css || "";
 }
 
-/// Binder knapper, felter og træk-og-slip i layout-editoren.
+/// Binder knapper, felter og træk-og-størrelse i miniature-editoren.
 function bindLayoutEditor() {
-  const cards = $("#layout-cards");
+  const canvas = $("#layout-canvas");
 
-  cards.addEventListener("change", (event) => {
-    const field = event.target.dataset.layoutField;
-    if (!field) return;
-    const row = event.target.closest("[data-layout-card]");
-    const card = layoutState().find((item) => item.id === row.dataset.layoutCard);
+  // Pointer-events dækker både mus og touch, så det virker på en tablet.
+  let drag = null;
+  canvas.addEventListener("pointerdown", (event) => {
+    const windowEl = event.target.closest("[data-layout-card]");
+    if (!windowEl) return;
+    const card = layoutState().find((item) => item.id === windowEl.dataset.layoutCard);
     if (!card) return;
+    state.selectedCard = card.id;
+    drag = {
+      card,
+      resizing: !!event.target.closest("[data-layout-resize]"),
+      startX: event.clientX,
+      startY: event.clientY,
+      origin: { x: card.x, y: card.y, w: card.w, h: card.h },
+      moved: false,
+    };
+    windowEl.setPointerCapture(event.pointerId);
+    windowEl.classList.add("dragging");
+    renderLayoutToolbar();
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const box = canvas.getBoundingClientRect();
+    // Bevægelsen omregnes til procent, så det følger med uanset hvor stor
+    // miniature-editoren er tegnet.
+    const dx = ((event.clientX - drag.startX) / box.width) * 100;
+    const dy = ((event.clientY - drag.startY) / box.height) * 100;
+    const o = drag.origin;
+    if (drag.resizing) {
+      drag.card.w = o.w + dx;
+      drag.card.h = o.h + dy;
+    } else {
+      drag.card.x = o.x + dx;
+      drag.card.y = o.y + dy;
+    }
+    const snapped = clampCard(drag.card);
+    Object.assign(drag.card, snapped);
+    drag.moved = true;
     state.layoutDirty = true;
-    if (field === "hidden") card.hidden = event.target.checked;
-    else if (field === "span" || field === "row") card[field] = Number(event.target.value);
-    else card[field] = event.target.value;
+    // Under trækket opdateres kun den rørte vindue, så DOM'et ikke genopbygges.
+    const el = canvas.querySelector(`[data-layout-card="${card.id}"]`);
+    if (el) {
+      el.style.left = `${drag.card.x}%`;
+      el.style.top = `${drag.card.y}%`;
+      el.style.width = `${drag.card.w}%`;
+      el.style.height = `${drag.card.h}%`;
+      el.querySelector(".layout-window-size").textContent = `${Math.round(drag.card.w)}×${Math.round(drag.card.h)}`;
+    }
+    applyTodayLayout();
+    renderLayoutToolbar();
+  });
+
+  const endDrag = (event) => {
+    if (!drag) return;
+    const card = drag.card;
+    canvas.querySelector(`[data-layout-card="${card?.id}"]`)?.classList.remove("dragging");
+    // Kun et faktisk ryk tæller som en ændring, så et klik alene ikke
+    // blokerer den automatiske genindlæsning.
+    const moved = drag.moved;
+    drag = null;
+    if (event && moved) state.layoutDirty = true;
+    renderLayoutEditor();
+  };
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+
+  $("#layout-align").addEventListener("change", (event) => {
+    const card = layoutState().find((item) => item.id === state.selectedCard);
+    if (!card) return;
+    card.align = event.target.value;
+    state.layoutDirty = true;
+    applyTodayLayout();
+    renderLayoutEditor();
+  });
+  $("#layout-valign").addEventListener("change", (event) => {
+    const card = layoutState().find((item) => item.id === state.selectedCard);
+    if (!card) return;
+    card.valign = event.target.value;
+    state.layoutDirty = true;
+    applyTodayLayout();
+    renderLayoutEditor();
+  });
+  $("#layout-hidden").addEventListener("change", (event) => {
+    const card = layoutState().find((item) => item.id === state.selectedCard);
+    if (!card) return;
+    card.hidden = event.target.checked;
+    state.layoutDirty = true;
     applyTodayLayout();
     renderLayoutEditor();
   });
 
-  // Træk-og-slip med HTML5, så rækkefølgen kan ændres uden ekstra bibliotek.
-  let dragged = null;
-  cards.addEventListener("dragstart", (event) => {
-    const row = event.target.closest("[data-layout-card]");
-    if (!row) return;
-    dragged = row;
-    row.classList.add("dragging");
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", row.dataset.layoutCard);
-  });
-  cards.addEventListener("dragend", () => {
-    if (dragged) dragged.classList.remove("dragging");
-    $$(".layout-card.drop-target", cards).forEach((el) => el.classList.remove("drop-target"));
-    dragged = null;
-  });
-  cards.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    const row = event.target.closest("[data-layout-card]");
-    if (!row || row === dragged) return;
-    $$(".layout-card.drop-target", cards).forEach((el) => el.classList.remove("drop-target"));
-    row.classList.add("drop-target");
-  });
-  cards.addEventListener("drop", (event) => {
-    event.preventDefault();
-    const row = event.target.closest("[data-layout-card]");
-    if (!row || !dragged || row === dragged) return;
-    const items = layoutState();
-    const from = items.findIndex((item) => item.id === dragged.dataset.layoutCard);
-    const to = items.findIndex((item) => item.id === row.dataset.layoutCard);
-    if (from < 0 || to < 0) return;
+  // "Tilpas til indhold" giver et kort en højde, der passer til dets indhold,
+  // så et kort med to linjer ikke får samme højde som et fuldt panel.
+  $("#layout-fit").addEventListener("click", () => {
+    const card = layoutState().find((item) => item.id === state.selectedCard);
+    if (!card) return;
+    const presets = { hero: 30, "stat-events": 18, "stat-birthday": 18, checklist: 26 };
+    card.h = presets[card.id] || 22;
     state.layoutDirty = true;
-    const [moved] = items.splice(from, 1);
-    items.splice(to, 0, moved);
     applyTodayLayout();
     renderLayoutEditor();
   });
@@ -540,6 +614,7 @@ function bindLayoutEditor() {
     state.todayColumns = String(value);
     state.layoutDirty = true;
     applyTodayLayout();
+    if (state.activeView === "layout") $("#layout-canvas").style.setProperty("--fd-cols", value);
   });
 
   $("#layout-save").addEventListener("click", async () => {
@@ -551,7 +626,7 @@ function bindLayoutEditor() {
       method: "PATCH",
       body: {
         today_layout_mode: state.layoutMode,
-        today_layout: JSON.stringify(layoutState().map(({ id, span, row, align, valign, hidden }) => ({ id, span, row, align, valign, hidden }))),
+        today_layout: JSON.stringify(layoutState().map(({ id, x, y, w, h, align, valign, hidden }) => ({ id, x, y, w, h, align, valign, hidden }))),
         today_columns: Math.max(1, Math.min(8, Number(state.todayColumns) || 4)),
         today_custom_css: css,
       },
@@ -561,10 +636,11 @@ function bindLayoutEditor() {
   });
 
   $("#layout-reset").addEventListener("click", async () => {
-    state.layout = LAYOUT_CARDS.map((card) => ({ ...card }));
+    state.layout = defaultLayout();
     state.layoutMode = "auto";
     state.todayColumns = "4";
     state.customCss = "";
+    state.selectedCard = null;
     state.layoutDirty = false;
     applyTodayLayout();
     renderLayoutEditor();
@@ -595,6 +671,7 @@ function bindLayoutEditor() {
   $("#layout-css").addEventListener("input", (event) => {
     if (!$("#layout-css-live").checked) return;
     state.customCss = event.target.value;
+    state.layoutDirty = true;
     applyCustomCss(state.customCss);
   });
 }

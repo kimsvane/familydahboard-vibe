@@ -139,8 +139,9 @@ input:hover, textarea:hover, select:hover { border-color: rgba(159, 181, 222, 0.
 .section-heading h1 { margin-bottom: 0; }
 .section-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .section-copy { max-width: 720px; margin: -13px 0 26px; color: var(--muted); line-height: 1.6; }
-.hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) max-content max-content; gap: 14px; margin-bottom: 14px; }
-.stat-card { justify-self: end; min-width: 190px; max-width: 280px; }
+.hero-grid { display: grid; grid-template-columns: max-content max-content max-content; align-items: start; justify-content: start; gap: 14px; margin-bottom: 14px; }
+.hero-card { justify-self: start; width: max-content; max-width: 100%; }
+.stat-card { justify-self: start; width: max-content; min-width: 190px; max-width: 280px; }
 .hero-card { display: flex; align-items: center; justify-content: flex-start; gap: 28px; min-height: 210px; padding: clamp(24px, 4vw, 42px); overflow: hidden; background: radial-gradient(circle at 90% 20%, rgba(124, 156, 255, 0.26), transparent 35%), linear-gradient(135deg, #1c3768, #202050 65%, #171b36); }
 .hero-card h1 { max-width: 650px; margin-bottom: 9px; }
 .hero-copy { max-width: 520px; margin-bottom: 0; color: #c3ceea; line-height: 1.55; }
@@ -152,6 +153,7 @@ input:hover, textarea:hover, select:hover { border-color: rgba(159, 181, 222, 0.
 .stat-label { color: var(--muted); font-size: 0.78rem; font-weight: 800; }
 .stat-value { margin: 12px 0 4px; font-size: 3.4rem; line-height: 1; letter-spacing: -0.08em; }
 .stat-label, .stat-foot { display: block; min-height: 1.2em; line-height: 1.25; }
+.stat-card { align-self: start; }
 .stat-foot { color: var(--faint); font-size: 0.78rem; line-height: 1.3; }
 .birthday-stat .stat-value { color: var(--yellow); }
 .dashboard-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
@@ -178,8 +180,8 @@ input:hover, textarea:hover, select:hover { border-color: rgba(159, 181, 222, 0.
 .member-list { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 .member-item { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .member-item .avatar { width: 36px; height: 36px; border-radius: 12px; font-size: 0.72rem; }
-.checklist .check-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 5px 0; }
-.check-row input { width: 24px; min-height: 24px; accent-color: var(--accent-strong); }
+.checklist .check-row { display: flex; align-items: center; gap: 10px; height: 54px; min-height: 54px; padding: 5px 0; }
+.check-row input { flex: 0 0 auto; width: 24px; height: 24px; min-height: 24px; accent-color: var(--accent-strong); }
 /* En lang opgave må bryde på ord og ikke skubbe handlingerne ud af panelet.
    To linjer er nok til at læse den, resten klippes. */
 .check-row label {
@@ -193,8 +195,7 @@ input:hover, textarea:hover, select:hover { border-color: rgba(159, 181, 222, 0.
   -webkit-line-clamp: 2;
   line-clamp: 2;
 }
-.check-row { align-items: flex-start; }
-.check-row input { margin-top: 2px; }
+.check-row { align-items: center; }
 .check-row .check-badge, .check-row .check-actions { align-self: center; }
 .check-row.done label { color: var(--faint); text-decoration: line-through; }
 .check-badge { flex: 0 0 auto; padding: 2px 7px; border: 1px solid rgba(124, 156, 255, 0.35); border-radius: 999px; color: var(--accent); font-size: 0.62rem; font-weight: 800; }
@@ -390,7 +391,7 @@ input:hover, textarea:hover, select:hover { border-color: rgba(159, 181, 222, 0.
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
-/* ---------- Layout-editor ---------- */
+/* ---------- Layout-editor: miniature af I dag-siden ---------- */
 .layout-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .layout-mode { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 13px; cursor: pointer; }
 .layout-mode:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
@@ -399,29 +400,106 @@ input:hover, textarea:hover, select:hover { border-color: rgba(159, 181, 222, 0.
 .layout-mode strong { display: block; font-size: 0.88rem; }
 .layout-mode small { display: block; margin-top: 3px; color: var(--muted); font-size: 0.74rem; line-height: 1.4; }
 
-.layout-cards { display: grid; gap: 8px; }
-.layout-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: rgba(8, 15, 32, 0.3); }
-.layout-card.dragging { opacity: 0.4; }
-.layout-card.drop-target { border-color: var(--accent); }
-.layout-grip { display: flex; align-items: center; color: var(--faint); font-size: 1.1rem; cursor: grab; touch-action: none; }
-.layout-grip:active { cursor: grabbing; }
-.layout-card-name { font-weight: 800; font-size: 0.88rem; }
-.layout-card-hint { margin-top: 2px; color: var(--muted); font-size: 0.73rem; }
-.layout-card-controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
-.layout-card-controls label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.75rem; }
-.layout-card-controls select, .layout-card-controls input { min-width: 0; }
-.layout-card-controls select { min-height: 34px; }
-.layout-card-controls input[type="number"] { width: 72px; min-height: 34px; }
-.layout-card-preview { margin-top: 8px; color: var(--faint); font-size: 0.7rem; }
-
-/* Manuel placering: grid-attributterne sættes fra layoutet, og kortene skjules
-   hvis brugeren har valgt det. */
-.view[data-view-panel="today"][data-layout-mode="manual"] .dashboard-grid {
-  grid-template-columns: repeat(var(--fd-columns, 4), minmax(0, 1fr));
-  grid-auto-rows: minmax(180px, auto);
-  align-items: start;
+/* Selve skærmen. Rasteret er en hjælp, så det er tydeligt hvor kortene kan snappe. */
+.layout-canvas {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background:
+    repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px calc(100% / var(--fd-cols, 4))),
+    repeating-linear-gradient(0deg, var(--line) 0 1px, transparent 1px 6.25%),
+    rgba(8, 15, 32, 0.45);
+  touch-action: none;
+  user-select: none;
 }
-.view[data-view-panel="today"][data-layout-mode="manual"] .dashboard-grid .panel { min-height: 0; }
+
+.layout-window {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 9px;
+  overflow: hidden;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: rgba(30, 41, 72, 0.92);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
+  cursor: grab;
+  touch-action: none;
+}
+.layout-window.is-hidden { border-style: dashed; opacity: 0.45; }
+.layout-window.selected { outline: 2px solid var(--accent-strong); outline-offset: 1px; z-index: 5; }
+.layout-window.dragging { cursor: grabbing; z-index: 6; }
+.layout-window-name { min-width: 0; overflow: hidden; }
+.layout-window-size { margin-left: auto; color: var(--faint); font-size: 0.66rem; font-weight: 600; white-space: nowrap; }
+.layout-window-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  border-top: 2px solid var(--accent-strong);
+  border-left: 2px solid var(--accent-strong);
+  border-bottom-right-radius: 9px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.layout-window-handle::after {
+  content: "";
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--accent-strong);
+  border-bottom: 2px solid var(--accent-strong);
+  opacity: 0.75;
+}
+
+.layout-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.layout-toolbar-head { min-width: 180px; }
+.layout-toolbar-head strong { display: block; font-size: 0.88rem; }
+.layout-card-hint { margin-top: 2px; color: var(--muted); font-size: 0.73rem; }
+.layout-card-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.layout-card-controls label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.75rem; }
+.layout-card-controls select { min-width: 0; min-height: 34px; }
+.check-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.75rem; }
+
+/* Manuel placering: de to grid-wrapperne fjernes fra flowet, så hvert kort
+   kan placeres frit i procent, præcis som i miniature-editoren. */
+/* I manuel tilstand må højden fastlægges, ellers ville procenthøjderne på
+   kortene blive relativt til en højde, der kun følger indholdet. */
+.view[data-view-panel="today"][data-layout-mode="manual"].active {
+  display: block;
+  height: calc(100dvh - var(--chrome-height, 186px));
+  min-height: 520px;
+}
+.view[data-view-panel="today"][data-layout-mode="manual"] { position: relative; gap: 0; }
+.view[data-view-panel="today"][data-layout-mode="manual"] > .hero-grid,
+.view[data-view-panel="today"][data-layout-mode="manual"] > .dashboard-grid { display: contents; }
+.view[data-view-panel="today"][data-layout-mode="manual"] [data-card] {
+  position: absolute;
+  margin: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+/* Listerne skal rulle inde i kortet, ellers sprænger indholdet ud af vinduet. */
+.view[data-view-panel="today"][data-layout-mode="manual"] [data-card] > .event-list,
+.view[data-view-panel="today"][data-layout-mode="manual"] [data-card] > .birthday-list,
+.view[data-view-panel="today"][data-layout-mode="manual"] [data-card] > .member-list,
+.view[data-view-panel="today"][data-layout-mode="manual"] [data-card] > .checklist,
+.view[data-view-panel="today"][data-layout-mode="manual"] [data-card] > .icloud-note-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+.view[data-view-panel="today"][data-layout-mode="manual"] .hero-card { width: auto; max-width: none; }
+.view[data-view-panel="today"][data-layout-mode="manual"] .stat-card { width: auto; min-width: 0; max-width: none; }
 .view[data-view-panel="today"] [data-card].is-hidden { display: none; }
 
 /* Egen CSS fra layout-editoren indsættes her af app.js. */

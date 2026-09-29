@@ -231,9 +231,25 @@
         </article>
 
         <article class="panel settings-card">
-          <div class="panel-heading"><div><p class="eyebrow">Rækkefølge og størrelse</p><h2>Kort</h2></div></div>
-          <p class="muted small-copy">Træk i håndtaget for at flytte et kort. Kortene vises i den rækkefølge, de står her.</p>
-          <div id="layout-cards" class="layout-cards"></div>
+          <div class="panel-heading"><div><p class="eyebrow">Rækkefølge og størrelse</p><h2>Skærmen</h2></div></div>
+          <p class="muted small-copy">Det her er en miniature af I dag-siden. Træk et kort for at flytte det, og træk i hjørnet nederst til højre for at gøre det større eller mindre. Klik på et kort for at vælge det.</p>
+          <div id="layout-canvas" class="layout-canvas"></div>
+          <div class="layout-toolbar">
+            <div class="layout-toolbar-head">
+              <strong id="layout-selected-name">Ingen kort valgt</strong>
+              <p class="layout-card-hint" id="layout-selected-hint">Klik på et kort ovenfor.</p>
+            </div>
+            <div class="layout-card-controls">
+              <label>Tekst
+                <select id="layout-align"><option value="left">venstre</option><option value="center">centreret</option><option value="right">højre</option></select>
+              </label>
+              <label>Indhold
+                <select id="layout-valign"><option value="top">øverst</option><option value="center">centreret</option><option value="bottom">nederst</option></select>
+              </label>
+              <label class="check-label"><input type="checkbox" id="layout-hidden"> Skjul på I dag</label>
+              <button class="button secondary compact" id="layout-fit" type="button">Tilpas til indhold</button>
+            </div>
+          </div>
         </article>
 
         <article class="panel settings-card">

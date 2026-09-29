@@ -1326,9 +1326,10 @@ def test_today_layout_settings_roundtrip_and_validation(tmp_path):
     try:
         with TestClient(main.app) as client:
             headers = _auth_client(client)
+            # Kortene placeres i procent, som vinduer på en skærm.
             layout = [
-                {"id": "hero", "span": 2, "row": 1, "align": "center", "valign": "top", "hidden": False},
-                {"id": "checklist", "span": 1, "row": 2, "align": "left", "valign": "top", "hidden": True},
+                {"id": "hero", "x": 0, "y": 0, "w": 60, "h": 25, "align": "center", "valign": "top", "hidden": False},
+                {"id": "checklist", "x": 61, "y": 0, "w": 39, "h": 45, "align": "left", "valign": "bottom", "hidden": True},
             ]
             response = client.patch(
                 "/api/settings",
