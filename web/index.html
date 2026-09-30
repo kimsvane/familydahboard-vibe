@@ -48,7 +48,8 @@
     </header>
 
     <nav class="main-nav" aria-label="Dashboard navigation">
-      <button class="nav-button active" data-view="today" type="button">I dag</button>
+      <button class="nav-button active" data-view="forside" type="button">Forside</button>
+      <button class="nav-button" data-view="today" type="button">I dag</button>
       <button class="nav-button" data-view="calendar" type="button">Kalender</button>
       <button class="nav-button" data-view="school" type="button">Skoleskema</button>
       <button class="nav-button" data-view="birthdays" type="button">Fødselsdage</button>
@@ -59,7 +60,32 @@
     </nav>
 
     <main class="content">
-      <section id="view-today" class="view active" data-view-panel="today">
+      <section id="view-forside" class="view active" data-view-panel="forside">
+        <header class="forside-head">
+          <p class="forside-weekday" id="forside-weekday">—</p>
+          <p class="forside-day" id="forside-day">—</p>
+          <p class="forside-clock" id="forside-clock">--:--</p>
+        </header>
+
+        <section class="panel forside-panel forside-panel--weather">
+          <h2 class="forside-label">Vejr de næste 12 timer <span class="forside-place" id="forside-place"></span></h2>
+          <div class="hourly" id="forside-hours"></div>
+        </section>
+
+        <div class="forside-bottom">
+          <section class="panel forside-panel forside-panel--events">
+            <h2 class="forside-label">Familieaftaler de næste 24 timer</h2>
+            <div class="forside-events" id="forside-events"></div>
+          </section>
+
+          <section class="panel forside-panel forside-panel--birthday">
+            <h2 class="forside-label">Næste fødselsdag</h2>
+            <div class="forside-birthday" id="forside-birthday"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-today" class="view" data-view-panel="today">
         <div class="hero-grid">
           <article class="hero-card panel" data-card="hero">
             <div>

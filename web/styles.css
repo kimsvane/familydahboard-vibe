@@ -504,3 +504,76 @@ input:hover, textarea:hover, select:hover { border-color: rgba(159, 181, 222, 0.
 
 /* Egen CSS fra layout-editoren indsættes her af app.js. */
 #fd-custom-css { display: none; }
+
+/* ── Forside ───────────────────────────────────────────────────────────
+   Skærmen hænger på en væg og læses på flere meters afstand. Derfor er
+   skriften sat meget større end på de andre sider, og skriftstørrelserne
+   følger skærmens bredde, så det ser ens ud i både landskab og stående.
+   Alt må passe i skærmhøjden uden at siden skal scrolles. */
+.view[data-view-panel="forside"].active {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.1vw, 20px);
+  min-height: calc(100dvh - var(--chrome-height, 186px));
+
+  --fs-kæmpe: clamp(42px, 6.4vw, 128px);
+  --fs-stor: clamp(30px, 3.7vw, 74px);
+  --fs-mellem: clamp(19px, 2vw, 40px);
+  --fs-lille: clamp(14px, 1.15vw, 24px);
+}
+
+/* Topbaren er dyr i højde på en vægskærm. På forsiden skrumper den til en
+   menulinje, og på alle andre sider er den uændret. */
+body.paa-forside .topbar { min-height: 0; padding: 6px clamp(14px, 1.6vw, 32px); }
+body.paa-forside .brand-block,
+body.paa-forside .topbar-center { display: none; }
+body.paa-forside .topbar { grid-template-columns: 1fr; }
+body.paa-forside .connection-pill,
+body.paa-forside .icon-button { min-height: 30px; font-size: 0.68rem; }
+body.paa-forside .main-nav { top: 0; padding: 4px clamp(14px, 1.6vw, 32px); }
+body.paa-forside .nav-button { min-height: 34px; font-size: 0.76rem; }
+
+.forside-head { display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: clamp(14px, 1.6vw, 32px); }
+.forside-weekday { grid-column: 1; margin: 0; color: var(--accent); font-size: var(--fs-mellem); font-weight: 850; letter-spacing: 0.02em; text-transform: uppercase; }
+.forside-day { grid-column: 1; margin: 0; font-size: var(--fs-kæmpe); font-weight: 850; line-height: 0.95; letter-spacing: -0.05em; }
+.forside-clock { grid-column: 2; grid-row: 1 / span 2; margin: 0; font-size: var(--fs-stor); font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: -0.045em; }
+
+.forside-panel { display: flex; flex-direction: column; gap: clamp(8px, 0.8vw, 16px); min-height: 0; padding: clamp(12px, 1.3vw, 26px); }
+.forside-panel--weather { flex: 0 0 auto; }
+.forside-panel--events { flex: 1 1 auto; }
+.forside-panel--birthday { flex: 0 0 auto; }
+
+.forside-label { margin: 0; color: var(--muted); font-size: var(--fs-lille); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.forside-place { color: var(--faint); font-weight: 700; letter-spacing: 0.02em; text-transform: none; }
+.forside-empty { margin: 0; color: var(--faint); font-size: var(--fs-mellem); font-weight: 700; }
+
+/* Tolv lige brede timekolonner. */
+.hourly { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: clamp(4px, 0.5vw, 10px); }
+.hour { display: flex; flex-direction: column; align-items: center; gap: clamp(2px, 0.25vw, 6px); padding: clamp(6px, 0.6vw, 14px) 2px; border: 1px solid transparent; border-radius: var(--radius-md); }
+.hour__tid { margin: 0; color: var(--muted); font-size: var(--fs-mellem); font-weight: 800; font-variant-numeric: tabular-nums; }
+.hour__vejr { margin: 0; font-size: var(--fs-stor); line-height: 1; }
+.hour__temp { margin: 0; font-size: var(--fs-stor); font-weight: 850; line-height: 1; letter-spacing: -0.04em; }
+.hour__regn { margin: 0; min-height: 1.1em; color: var(--accent); font-size: var(--fs-lille); font-weight: 850; }
+.hour.er-vaad { border-color: rgba(92, 124, 250, 0.45); background: rgba(92, 124, 250, 0.12); }
+.hour:first-child { border-color: var(--line-strong); background: rgba(255, 255, 255, 0.05); }
+
+.forside-bottom { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: clamp(10px, 1.1vw, 20px); flex: 1 1 auto; min-height: 0; }
+.forside-events { display: flex; flex-direction: column; justify-content: center; gap: clamp(4px, 0.55vw, 12px); min-height: 0; overflow: hidden; }
+.dagslinje { display: grid; grid-template-columns: auto 6px minmax(0, 1fr) auto; align-items: center; column-gap: clamp(8px, 0.8vw, 16px); }
+.dagslinje__tid { color: var(--accent); font-size: var(--fs-mellem); font-variant-numeric: tabular-nums; font-weight: 850; }
+.dagslinje__strek { align-self: stretch; min-height: 1.1em; border-radius: 3px; }
+.dagslinje__titel { overflow: hidden; font-size: var(--fs-mellem); font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.dagslinje__tag { padding: 2px 8px; border-radius: 999px; color: var(--green); background: rgba(79, 209, 161, 0.14); font-size: var(--fs-lille); font-weight: 850; text-transform: uppercase; }
+
+.forside-birthday { display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+.fodselsdag__navn { margin: 0; overflow: hidden; font-size: var(--fs-kæmpe); font-weight: 850; line-height: 0.98; letter-spacing: -0.045em; text-overflow: ellipsis; }
+.fodselsdag__dato { margin: clamp(2px, 0.3vw, 8px) 0 0; color: var(--muted); font-size: var(--fs-mellem); font-weight: 700; }
+.fodselsdag__dage { margin: clamp(2px, 0.3vw, 8px) 0 0; color: var(--yellow); font-size: var(--fs-lille); font-weight: 850; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* I stående format er der plads til færre timekolonner, og kalenderen
+   og fødselsdagen ligger under hinanden. */
+@media (max-aspect-ratio: 1/1) {
+  .hourly { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .forside-bottom { grid-template-columns: minmax(0, 1fr); }
+  .forside-panel--birthday { flex: 1 1 auto; }
+}

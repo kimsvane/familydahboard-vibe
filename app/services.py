@@ -29,6 +29,49 @@ def get_timezone(name: str) -> Any:
     except ZoneInfoNotFoundError:
         return timezone.utc
 
+# Felterne der hentes time for time. Rækkefølgen bruges ikke, men den
+# skal passe til de arrays Open-Meteo svarer med, og de skal have samme
+# længde. Mangler en, sættes den til None i stedet for at sprænge svaret.
+HOURLY_FIELDS = (
+    ("temperature_2m", "temperature"),
+    ("apparent_temperature", "apparent_temperature"),
+    ("precipitation_probability", "precipitation_probability"),
+    ("weather_code", "weather_code"),
+)
+
+
+def parse_hourly(payload: dict[str, Any], timezone_name: Optional[str] = None, limit: int = 24) -> list[dict[str, Any]]:
+    """Timebaseret vejr fra denne time og fremad.
+
+    Open-Meteo svarer med parallelle arrays, én time ad gangen. Tidsstemplerne
+    er i lokal tid, fordi vi beder om en tidszone, så de skal have den samme
+    tidszone hæftet på før de kan sammenlignes med nu.
+    """
+    hourly = payload.get("hourly") or {}
+    stamps = hourly.get("time") or []
+    if not stamps or limit <= 0:
+        return []
+    zone = get_timezone(timezone_name) if timezone_name else None
+    current_hour = datetime.now(zone).replace(minute=0, second=0, microsecond=0)
+    rows: list[dict[str, Any]] = []
+    for index, stamp in enumerate(stamps):
+        try:
+            moment = datetime.fromisoformat(str(stamp))
+        except (TypeError, ValueError):
+            continue
+        if zone is not None:
+            moment = moment.replace(tzinfo=zone)
+        if moment < current_hour:
+            continue
+        row: dict[str, Any] = {"time": str(stamp)}
+        for source, target in HOURLY_FIELDS:
+            values = hourly.get(source) or []
+            row[target] = values[index] if index < len(values) else None
+        rows.append(row)
+        if len(rows) >= limit:
+            break
+    return rows
+
 
 def date_range(start: date, end: date, timezone_name: str) -> tuple[datetime, datetime]:
     zone = get_timezone(timezone_name)
@@ -130,17 +173,23 @@ class WeatherService:
                             "latitude": latitude,
                             "longitude": longitude,
                             "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
+                            # timebaseret vejr til forsiden. To dage, fordi
+                            # tolv timer kan naa over i morgen.
+                            "hourly": ",".join(source for source, _ in HOURLY_FIELDS),
+                            "forecast_days": 2,
                             "timezone": timezone_name,
                         },
                     )
                     response.raise_for_status()
-                    current = response.json().get("current", {})
+                    payload = response.json()
+                    current = payload.get("current", {})
                     result = {
                         "temperature": current.get("temperature_2m"),
                         "apparent_temperature": current.get("apparent_temperature"),
                         "weather_code": current.get("weather_code"),
                         "wind_speed": current.get("wind_speed_10m"),
                         "location": location_name,
+                        "hourly": parse_hourly(payload, timezone_name),
                     }
                     self._cache[key] = (now, result)
                     return result

@@ -5,7 +5,7 @@ const state = {
   calendarCursor: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   selectedDate: new Date(),
   schoolWeekStart: startOfWeek(new Date()),
-  activeView: localStorage.getItem("fd-view") || "today",
+  activeView: localStorage.getItem("fd-view") || "forside",
   refreshTimer: null,
   clockTimer: null,
   settings: {},
@@ -187,6 +187,16 @@ function updateClock() {
   const showSeconds = state.summary?.settings?.show_seconds !== "false";
   $("#clock").textContent = new Intl.DateTimeFormat("da-DK", { hour: "2-digit", minute: "2-digit", second: showSeconds ? "2-digit" : undefined }).format(now);
   $("#top-date").textContent = formatDate(now);
+  const forsideClock = $("#forside-clock");
+  if (forsideClock) {
+    forsideClock.textContent = new Intl.DateTimeFormat("da-DK", { hour: "2-digit", minute: "2-digit" }).format(now);
+  }
+  const weekday = $("#forside-weekday");
+  const day = $("#forside-day");
+  if (weekday && day) {
+    weekday.textContent = formatDate(now, { weekday: "long" });
+    day.textContent = formatDate(now, { day: "numeric", month: "long" });
+  }
 }
 
 function greeting() {
@@ -220,6 +230,7 @@ function renderSummary() {
   renderTodayEvents(calendarEvents);
   renderTodaySchoolEvents(todaySchoolEvents);
   renderBirthdayPreview(summary.birthdays || []);
+  renderForside(summary);
   renderMembers(summary.members || []);
   renderChecklist(summary.checklist || []);
   renderBirthdayGrid(summary.birthdays || []);
@@ -234,6 +245,30 @@ function renderSummary() {
   $("#dashboard-url").textContent = window.location.origin;
 }
 
+// Hele WMO-tabellen. Den gamle liste havde huljer, saa almindelig
+// skyet regn faldt tilbage til et klipletegn, naar koden var 53 eller 55.
+const WEATHER_GLYPHS = {
+  0: "☼", 1: "◐", 2: "◒", 3: "☁", 45: "≈", 48: "≈",
+  51: "·", 53: "·", 55: "·", 56: "·", 57: "·",
+  61: "·", 63: "·", 65: "·", 66: "·", 67: "·",
+  71: "❄", 73: "❄", 75: "❄", 77: "❄",
+  80: "·", 81: "·", 82: "·", 85: "·", 86: "·",
+  95: "ϟ", 96: "ϟ", 99: "ϟ",
+};
+
+function weatherGlyph(code) {
+  return WEATHER_GLYPHS[Number(code)] || "◌";
+}
+
+function toDisplayTemperature(celsius, settings) {
+  // Number(null) er 0, saa en manglende temperatur ellers ville vise
+  // 0 grader, som om det var frossent.
+  if (celsius === null || celsius === undefined || celsius === "") return null;
+  const value = Number(celsius);
+  if (!Number.isFinite(value)) return null;
+  return settings?.temperature_unit === "fahrenheit" ? value * 9 / 5 + 32 : value;
+}
+
 function renderWeather(weather, settings) {
   const icon = $("#weather-icon");
   const temperature = $("#weather-temperature");
@@ -244,15 +279,109 @@ function renderWeather(weather, settings) {
     location.textContent = settings.location_name || "Vejr";
     return;
   }
-  const code = Number(weather.weather_code);
-  const labels = { 0: "☼", 1: "◐", 2: "◒", 3: "☁", 45: "≈", 48: "≈", 51: "·", 61: "·", 63: "·", 65: "·", 71: "❄", 73: "❄", 75: "❄", 80: "·", 81: "·", 82: "·", 95: "ϟ" };
-  const unit = settings.temperature_unit === "fahrenheit" ? "°F" : "°C";
-  const celsius = Number(weather.temperature);
-  const value = settings.temperature_unit === "fahrenheit" ? celsius * 9 / 5 + 32 : celsius;
-  icon.textContent = labels[code] || "◌";
-  temperature.textContent = `${Number.isFinite(value) ? Math.round(value) : "--"}°`;
+  const value = toDisplayTemperature(weather.temperature, settings);
+  icon.textContent = weatherGlyph(weather.weather_code);
+  temperature.textContent = `${value === null ? "--" : Math.round(value)}°`;
   location.textContent = weather.location || settings.location_name || "Vejr";
 }
+
+/// Alt paa forsiden skal kunne laeses paa nogle meters afstand, saa der
+/// staar sa lidt som muligt. Vejret er det, der skifter mest, og derfor
+/// staar time og temperatur foerst.
+function renderForsideHours(weather, settings) {
+  const target = $("#forside-hours");
+  const place = $("#forside-place");
+  if (place) place.textContent = weather?.location || settings?.location_name || "";
+  const hourly = Array.isArray(weather?.hourly) ? weather.hourly.slice(0, 12) : [];
+  if (!hourly.length) {
+    target.innerHTML = `<p class="forside-empty">Timevejr kunne ikke hentes</p>`;
+    return;
+  }
+  target.innerHTML = hourly.map((hour, index) => {
+    const temperature = toDisplayTemperature(hour.temperature, settings);
+    const rain = Number(hour.precipitation_probability);
+    // Under tredive procent regner det sjældent nok til at sige noget,
+    // og tomme felter bare støjer paa en stor skærm.
+    const wet = Number.isFinite(rain) && rain >= 30;
+    const label = index === 0 ? "Nu" : String(hour.time || "").slice(11, 13);
+    return `<div class="hour${wet ? " er-vaad" : ""}">
+      <p class="hour__tid">${escapeHtml(label)}</p>
+      <p class="hour__vejr">${weatherGlyph(hour.weather_code)}</p>
+      <p class="hour__temp">${temperature === null ? "--" : Math.round(temperature)}°</p>
+      <p class="hour__regn">${wet ? `${Math.round(rain)}%` : ""}</p>
+    </div>`;
+  }).join("");
+}
+
+/// Kun familieaftaler de næste 24 timer. Skolekortene har hver deres
+/// egen side, saa de skal ikke fylde her.
+function familyEventsInNext24h(events, now = new Date()) {
+  const start = now.getTime();
+  const end = start + 24 * 60 * 60 * 1000;
+  const today = eventDateKey({ local_date: localDateKey(now) });
+  const tomorrow = eventDateKey({ local_date: localDateKey(new Date(now.getTime() + 24 * 60 * 60 * 1000)) });
+  return events
+    .filter((event) => event.source_kind !== "school")
+    .filter((event) => {
+      // Heldagsbegivenheder har ingen tid at regne efter, saa de tages
+      // med naar de ligger i dag eller i morgen.
+      if (event.all_day || !event.start_at) return eventDateKey(event) === today || eventDateKey(event) === tomorrow;
+      const starts = new Date(event.start_at).getTime();
+      const ends = event.end_at ? new Date(event.end_at).getTime() : starts;
+      if (!Number.isFinite(starts) || !Number.isFinite(ends)) return false;
+      // En aftale der er i gang tæller stadig, ellers forsvandt den
+      // præcis mens folkene var ved at gå hjem.
+      return ends >= start && starts < end;
+    })
+    .sort((a, b) => new Date(a.start_at || 0).getTime() - new Date(b.start_at || 0).getTime());
+}
+
+function localDateKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function renderForsideEvents(events) {
+  const target = $("#forside-events");
+  if (!events.length) {
+    target.innerHTML = `<p class="forside-empty">Ingen aftaler de næste 24 timer</p>`;
+    return;
+  }
+  target.innerHTML = events.map((event) => {
+    const started = !event.all_day && event.start_at && new Date(event.start_at).getTime() <= Date.now();
+    const color = escapeHtml(event.source_color || "#5c7cfa");
+    return `<div class="dagslinje">
+      <span class="dagslinje__tid">${escapeHtml(event.all_day ? "Hele dagen" : event.local_start_time || formatTime(event.start_at))}</span>
+      <span class="dagslinje__strek" style="background:${color}"></span>
+      <span class="dagslinje__titel">${escapeHtml(event.title)}</span>
+      ${started ? `<span class="dagslinje__tag">igang</span>` : ""}
+    </div>`;
+  }).join("");
+}
+
+/// Dage-tallet skal ikke konkurrere med navnet. Det er personen, man
+/// skal kunne laese paa tværs af rummet, ikke optællingen.
+function renderForsideBirthday(birthdays) {
+  const target = $("#forside-birthday");
+  const next = birthdays[0];
+  if (!next) {
+    target.innerHTML = `<p class="forside-empty">Ingen fødselsdage endnu</p>`;
+    return;
+  }
+  const days = next.days_until === 0 ? "I dag" : next.days_until === 1 ? "I morgen" : `om ${next.days_until} dage`;
+  target.innerHTML = `
+    <p class="fodselsdag__navn">${escapeHtml(next.name)}</p>
+    <p class="fodselsdag__dato">${escapeHtml(formatDate(next.next_occurrence, { day: "numeric", month: "long" }))} · ${next.age} år</p>
+    <p class="fodselsdag__dage">${escapeHtml(days)}</p>`;
+}
+
+function renderForside(summary) {
+  const settings = summary?.settings || {};
+  renderForsideHours(summary?.weather, settings);
+  renderForsideEvents(familyEventsInNext24h(summary?.events || []));
+  renderForsideBirthday(summary?.birthdays || []);
+}
+
 
 function eventItem(event, compact = false) {
   const sourceLabel = event.source_kind === "school" ? `Skole · ${event.source_name || "Skoleskema"}` : event.source_name || "Kalender";
@@ -1115,6 +1244,10 @@ function showView(view) {
   state.activeView = target;
   localStorage.setItem("fd-view", target);
   $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === target));
+  document.body.classList.toggle("paa-forside", target === "forside");
+  // Topbaren skrumper paa forsiden, saa hoejden af den skal maales igen,
+  // ellers regner forsiden sin hojde efter den gamle topbar.
+  measureChrome();
   available.forEach((panel) => panel.classList.toggle("active", panel.dataset.viewPanel === target));
   if (target === "calendar") loadCalendarEvents();
   if (target === "school") loadSchoolEvents();
