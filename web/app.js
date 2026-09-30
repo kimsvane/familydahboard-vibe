@@ -1467,6 +1467,32 @@ function showView(view) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+/* En fuld genindlæsning. Det er ikke det samme som opdater-knappen:
+   den henter kun nye tal ind i kasserne og lader det gamle UI ligge,
+   mens denne henter hele siden, så et nyt UI kommer med. Det er den
+   kiosken skal bruge efter en opdatering på serveren. */
+async function genindlaesAlt() {
+  // Ryd service workerens cache først. Ellers kan en genindlæsning
+  // trods altig hente en gammel app.js, hvis serveren lige nu er
+  // us tilgængelig. Vi afmelder ikke workeren, for så taber kiosken
+  // sin offline-skal indtil næste indlæsning.
+  try {
+    if (window.caches) {
+      const nøgler = await window.caches.keys();
+      await Promise.all(nøgler.map((nøgle) => window.caches.delete(nøgle)));
+    }
+  } catch (error) {
+    // Cache er en bekvemmelighed, ikke en forudsætning. Knappen skal
+    // virke alligevel, hvis browseren nægter adgang.
+  }
+  // Knappen skal virke, også hvis klichen ikke kan tegnes. Den er
+  // vej til en frisk side efter en dårlig opdatering, så en
+  // exception i en besked må aldrig stoppe selve genindlæsningen.
+  try { showToast("Genindlæser hele siden …"); } catch (error) { /* kosen */ }
+  // Lidt ventetid, så beskeden bliver tegnet før skærmen tømmes.
+  setTimeout(() => location.reload(), 350);
+}
+
 async function loadSummary(silent = false) {
   try {
     state.summary = await api("/api/dashboard/summary?days=14");
@@ -1628,6 +1654,7 @@ function bindEvents() {
   $$(".nav-button").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view)));
   $$("[data-view-link]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.viewLink)));
   $("#refresh-button").addEventListener("click", () => loadSummary());
+  $("#restart-button").addEventListener("click", genindlaesAlt);
   $("#settings-shortcut").addEventListener("click", () => showView("settings"));
   // Knappen vender mellem lyst og mørkt og gemmer valget. Tilbage til
   // automatisk skift gøres i indstillingerne, hvor klokkeslættene ligger.

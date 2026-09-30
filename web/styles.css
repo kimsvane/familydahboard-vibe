@@ -13,6 +13,7 @@
   --accent: #7c9cff;
   --accent-strong: #5c7cfa;
   --accent-soft: rgba(124, 156, 255, 0.15);
+  --accent-line: rgba(124, 156, 255, 0.55);
   --green: #4fd1a1;
   --yellow: #f5c76b;
   --yellow-soft: rgba(245, 199, 107, 0.14);
@@ -70,6 +71,7 @@
   --accent: #33509f;
   --accent-strong: #2a44a8;
   --accent-soft: rgba(51, 80, 159, 0.12);
+  --accent-line: rgba(51, 80, 159, 0.55);
   --green: #147a52;
   --yellow: #96620a;
   --yellow-soft: rgba(150, 98, 10, 0.10);
@@ -140,6 +142,11 @@ input:hover, textarea:hover, select:hover { border-color: var(--field-line-hover
 .button.compact { min-height: 40px; padding: 0 13px; border-radius: 10px; font-size: 0.82rem; }
 .button.full { width: 100%; margin-top: 14px; }
 .icon-button { width: var(--tap); height: var(--tap); display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--icon-btn-bg); font-size: 1.2rem; }
+/* Genindlæs alt ligger tæt på opdater-knappen, og begge er pile i en
+   cirkel. En accentkant gør det tydeligt hvilken der gør hvad, uden at
+   knappen skiller sig så meget ud at den ligner en advarsel. */
+.icon-button.is-restart { border-color: var(--accent-line); }
+.icon-button.is-restart:hover { border-color: var(--accent); }
 .text-button { min-height: 40px; padding: 5px 0; color: var(--accent); background: transparent; font-size: 0.82rem; font-weight: 800; }
 .error-text { min-height: 20px; margin: 0; color: var(--red); font-size: 0.85rem; }
 .ok-text { color: var(--green); font-size: 0.85rem; }

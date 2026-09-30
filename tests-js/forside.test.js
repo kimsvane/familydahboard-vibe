@@ -11,6 +11,13 @@ const source = fs.readFileSync(path.join(__dirname, "..", "web", "app.js"), "utf
 // server og registrere en service worker. navigator skal derfor se ud
 // som om den hverken har fetch eller serviceWorker, ellers støjer testen.
 let initKaldt = 0;
+const kontekstTimere = [];
+// Struppens cache-stand. Den ligger fast i konteksten, fordi en cache
+// der swappes under en test er svær at holde styr på.
+const cacheNøgler = new Set();
+const cacheSletninger = [];
+let cacheFejl = false;
+let reloadTalt = 0;
 
 const noopElement = {
   hidden: false,
@@ -23,6 +30,8 @@ const noopElement = {
   getAttribute() { return null; },
   removeAttribute() {},
   addEventListener() {},
+  append() {},
+  remove() {},
   querySelector() { return noopElement; },
   querySelectorAll() { return []; },
   appendChild() {},
@@ -46,9 +55,20 @@ const context = {
   },
   localStorage: { getItem: () => null, setItem() {} },
   navigator: {},
-  window: { addEventListener() {}, scrollTo() {}, location: { origin: "http://test", reload() {} } },
-  location: { origin: "http://test", reload() {} },
-  setTimeout() {},
+  window: {
+    addEventListener() {},
+    scrollTo() {},
+    setTimeout: (fn, ms) => { kontekstTimere.push({ fn, ms }); return kontekstTimere.length; },
+    caches: {
+      keys: async () => {
+        if (cacheFejl) throw new Error("ingen adgang");
+        return [...cacheNøgler];
+      },
+      delete: async (nøgle) => { cacheSletninger.push(nøgle); return cacheNøgler.delete(nøgle); },
+    },
+  },
+  location: { origin: "http://test", reload() { reloadTalt += 1; } },
+  setTimeout: (fn, ms) => { kontekstTimere.push({ fn, ms }); return kontekstTimere.length; },
   setInterval() { return { unref() {} }; },
   clearTimeout() {},
   clearInterval() {},
@@ -65,14 +85,35 @@ vm.createContext(context);
 vm.runInContext(source, context, { filename: "app.js" });
 
 const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature, themeForNow, clockMinutes,
-  renderForsideHints, renderReminderSourceOptions, reminderSourceLabel, reminderMatchLabel } = context;
+  renderForsideHints, renderReminderSourceOptions, reminderSourceLabel, reminderMatchLabel,
+  genindlaesAlt } = context;
 
 let bestævrelser = 0;
+// Enkelte tjek er asynkrone, så de skal vente. De køres i rækkefølge og
+// én ad gangen, ellers ville to asynkrone tjek oveni hinanden og skrive
+// over hinandens stramper. Et fejlet tjek stopper ikke de andre, men
+// bliver gemt og kastet til sidst.
+let kæde = Promise.resolve();
+const fejlene = [];
 const tjek = (navn, kør) => {
-  kør();
-  bestævrelser += 1;
-  process.stdout.write(`  ok  ${navn}\n`);
+  kæde = kæde.then(() => kør()).then(
+    () => {
+      bestævrelser += 1;
+      process.stdout.write(`  ok  ${navn}\n`);
+    },
+    (fejl) => {
+      fejlene.push(fejl);
+      process.stdout.write(`  FEJL  ${navn}\n`);
+    },
+  );
 };
+const afslut = (tekst) => kæde.then(() => {
+  if (fejlene.length) {
+    process.stdout.write(`\n${bestævrelser} af ${bestævrelser + fejlene.length} tjek bestaaet\n\nFejl i første fejlede tjek:\n`);
+    throw fejlene[0];
+  }
+  process.stdout.write(`\n${bestævrelser} ${tekst}\n`);
+});
 
 tjek("familieEventsInNext24faktiskFindes", () => {
   assert.equal(typeof familyEventsInNext24h, "function");
@@ -313,4 +354,50 @@ tjek("kildelisten følger den valgte kalendertype", () => {
   } finally { context.document.querySelector = gemt; }
 });
 
-console.log(`\n${bestævrelser} tjek gennemforsidens logik, alle bestaaet.`);
+/* ================= Genindlaes alt ================= */
+
+tjek("genindlaesAlt findes", () => {
+  assert.equal(typeof genindlaesAlt, "function");
+});
+
+tjek("genindlaesAlt rydder cachen og genindlaeser siden", async () => {
+  // Vi vil ikke have en gammel app.js liggende i service workerens
+  // cache, hvis serveren er us tilgaengelig i oieblikket.
+  cacheNøgler.clear();
+  cacheSletninger.length = 0;
+  cacheFejl = false;
+  cacheNøgler.add("gammel-cache");
+  cacheNøgler.add("family-dashboard-abc");
+  reloadTalt = 0;
+  const gemte = kontekstTimere.splice(0, kontekstTimere.length);
+  try {
+    await genindlaesAlt();
+    assert.deepEqual(cacheSletninger.slice().sort(), ["family-dashboard-abc", "gammel-cache"]);
+    // Reloaden skal ligge i en timer, saa beskeden kan tegnes foerst.
+    assert.equal(reloadTalt, 0);
+    const planlagt = kontekstTimere.splice(0, kontekstTimere.length);
+    // showToast rydder sin egen kliche, genindlaesAlt kalder reload.
+    planlagt.forEach((t) => t.fn());
+    assert.equal(reloadTalt, 1);
+  } finally {
+    kontekstTimere.push(...gemte);
+  }
+});
+
+tjek("genindlaesAlt virker ogsa naar cachen er lukket", async () => {
+  // En browser uden cache-tilgang skal ikke gaa i stykker, fordi
+  // knappen er den eneste vej til en frisk side.
+  cacheFejl = true;
+  reloadTalt = 0;
+  const gemte = kontekstTimere.splice(0, kontekstTimere.length);
+  try {
+    await genindlaesAlt();
+    kontekstTimere.splice(0, kontekstTimere.length).forEach((t) => t.fn());
+    assert.equal(reloadTalt, 1);
+  } finally {
+    cacheFejl = false;
+    kontekstTimere.push(...gemte);
+  }
+});
+
+afslut("tjek gennemforsidens logik, alle bestaaet.");
