@@ -74,6 +74,8 @@ const context = {
     scrollTo() {},
     setTimeout: planlægTimer,
     clearTimeout: rydTimer,
+    setInterval: () => 1,
+    clearInterval() {},
     caches: {
       keys: async () => {
         if (cacheFejl) throw new Error("ingen adgang");
@@ -101,7 +103,7 @@ vm.runInContext(source, context, { filename: "app.js" });
 
 const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature, themeForNow, clockMinutes,
   renderForsideHints, renderReminderSourceOptions, reminderSourceLabel, reminderMatchLabel,
-  genindlaesAlt, handleDetections } = context;
+  genindlaesAlt, handleDetections, pollCameras } = context;
 
 let bestævrelser = 0;
 // Enkelte tjek er asynkrone, så de skal vente. De køres i rækkefølge og
@@ -541,6 +543,39 @@ tjek("et kamera uden RTSP-url får intet live-feed", () => {
     assert.ok(!popup.innerHTML.includes("data-detect-live"), "LIVE-badgen skal ikke vises uden stream");
   } finally {
     context.document.querySelectorAll = gemtQuery;
+  }
+});
+
+tjek(" ét fejlslag dræber ikke overvågningen, poppen kommer tilbage", async () => {
+  // Kiosken står dagevis. Før stoppede ét netværkshul eller en udløbet
+  // session altså al overvågning for evigt, og poppen kom aldrig igen.
+  const gemtFetch = context.fetch;
+  const gemtApi = context.api;
+  const kaldte = [];
+  let fejlAntal = 0;
+  context.api = async (sti) => {
+    kaldte.push(sti);
+    if (sti === "/api/cameras/activity" && fejlAntal === 0) {
+      fejlAntal += 1;
+      throw new Error("netværkshul");
+    }
+    if (sti === "/api/cameras/activity") return aktivitet();
+    return { cameras: [], recent: [], active: [] };
+  };
+  try {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    await pollCameras();
+    assert.ok(
+      kontekstTimere.some((t) => t.ms === 5000),
+      "der skal være planlagt et nyt forsøg",
+    );
+    // Forsøget kører, og serveren svarer igen denne gang.
+    kontekstTimere.splice(0, kontekstTimere.length).forEach((t) => t.fn());
+    await new Promise((løs) => setImmediate(løs));
+    assert.ok(kaldte.length >= 2, "den skal prøve igen efter fejlen");
+  } finally {
+    context.api = gemtApi;
+    context.fetch = gemtFetch;
   }
 });
 

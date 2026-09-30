@@ -31,6 +31,7 @@ const state = {
   reminderLists: [],
   icloudNote: null,
   cameraTimer: null,
+  cameraRetryTimer: null,
   detectCloseTimer: null,
   detectLiveTimer: null,
   layout: null,
@@ -166,6 +167,8 @@ function showLogin() {
   if (state.refreshTimer) window.clearInterval(state.refreshTimer);
   if (state.cameraTimer) window.clearInterval(state.cameraTimer);
   state.cameraTimer = null;
+  if (state.cameraRetryTimer) window.clearTimeout(state.cameraRetryTimer);
+  state.cameraRetryTimer = null;
   if (state.themeTimer) window.clearInterval(state.themeTimer);
   state.themeTimer = null;
   stopDetectTimers();
@@ -1344,6 +1347,17 @@ function handleDetections(activity) {
   popup.hidden = false;
 }
 
+// Ét fejlslag må ikke dræbe overvågningen for alt. Kiosken kan stå
+// dagevis, så en udløbet session eller et kort netværkshul ville ellers
+// efterlade poppen død uden at nogen mærkede det. Vi prøver igen i stedet.
+function scheduleCameraRetry() {
+  if (state.cameraRetryTimer) return;
+  state.cameraRetryTimer = window.setTimeout(() => {
+    state.cameraRetryTimer = null;
+    pollCameras();
+  }, 5000);
+}
+
 async function pollCameras() {
   try {
     const activity = await api("/api/cameras/activity");
@@ -1355,6 +1369,7 @@ async function pollCameras() {
   } catch (error) {
     if (state.cameraTimer) window.clearInterval(state.cameraTimer);
     state.cameraTimer = null;
+    scheduleCameraRetry();
   }
 }
 
