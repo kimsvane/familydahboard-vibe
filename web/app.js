@@ -1,3 +1,15 @@
+/// Which page the wall display opens on. "today" was the old start page,
+/// so anyone still sitting on that gets moved to the front page once. Any
+/// other stored page is a deliberate choice and is left alone.
+function startView() {
+  const stored = localStorage.getItem("fd-view");
+  if (stored === "today") {
+    localStorage.setItem("fd-view", "forside");
+    return "forside";
+  }
+  return stored || "forside";
+}
+
 const state = {
   summary: null,
   calendarEvents: [],
@@ -5,9 +17,10 @@ const state = {
   calendarCursor: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   selectedDate: new Date(),
   schoolWeekStart: startOfWeek(new Date()),
-  activeView: localStorage.getItem("fd-view") || "forside",
+  activeView: startView(),
   refreshTimer: null,
   clockTimer: null,
+  themeTimer: null,
   settings: {},
   cameras: [],
   cameraBroken: new Set(),
@@ -150,6 +163,8 @@ function showLogin() {
   if (state.refreshTimer) window.clearInterval(state.refreshTimer);
   if (state.cameraTimer) window.clearInterval(state.cameraTimer);
   state.cameraTimer = null;
+  if (state.themeTimer) window.clearInterval(state.themeTimer);
+  state.themeTimer = null;
   if (state.detectTimer) window.clearTimeout(state.detectTimer);
   state.detectTimer = null;
   appShell.hidden = true;
@@ -165,6 +180,7 @@ function showApp() {
   state.clockTimer = window.setInterval(updateClock, 1000);
   if (state.refreshTimer) window.clearInterval(state.refreshTimer);
   state.refreshTimer = window.setInterval(() => loadSummary(true), 60000);
+  watchTheme();
   loadCameras(true);
   if (state.settings.notes_imap_configured) loadIcloudNote(true);
   measureChrome();
@@ -206,11 +222,65 @@ function greeting() {
   return "Godaften";
 }
 
+/// "07:30" bliver 450 minutter. Noget der ikke ligner et klokkeslæt
+/// giver standardværdien, så en tom indstilling ikke sortérer sort.
+function clockMinutes(value, fallback) {
+  const dele = String(value == null ? "" : value).split(":");
+  if (dele.length !== 2) return fallback;
+  const time = Number(dele[0]);
+  const minut = Number(dele[1]);
+  if (!Number.isFinite(time) || !Number.isFinite(minut)) return fallback;
+  if (time < 0 || time > 23 || minut < 0 || minut > 59) return fallback;
+  return time * 60 + minut;
+}
+
+/// Which theme is showing. "auto" follows the clock, so the wall display
+/// is not a lamp in a dark living room at midnight. The night stretch runs
+/// from the evening cut-off to the morning one, and it wraps around
+/// midnight, so the test has to handle both orderings of the two times.
+function themeForNow(settings, now = new Date()) {
+  const valgt = String((settings && settings.theme) || "auto").toLowerCase();
+  if (valgt === "dark" || valgt === "light") return valgt;
+  const nu = now.getHours() * 60 + now.getMinutes();
+  const dag = clockMinutes(settings && settings.theme_day_start, 7 * 60);
+  const nat = clockMinutes(settings && settings.theme_night_start, 20 * 60);
+  const erLys = nat > dag ? nu >= dag && nu < nat : nu >= dag || nu < nat;
+  return erLys ? "light" : "dark";
+}
+
+/// Puts the theme on <html>, so the whole stylesheet flips at once, and
+/// drags the browser's own colours along with it.
+function applyTheme(settings) {
+  const tema = themeForNow(settings);
+  const rod = document.documentElement;
+  if (rod.dataset.theme !== tema) {
+    rod.dataset.theme = tema;
+    rod.style.colorScheme = tema;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", tema === "light" ? "#eef2fb" : "#0b1020");
+    // Remembered so a reload does not flash the wrong theme while the
+    // server is still answering.
+    try { localStorage.setItem("fd-theme", tema); } catch (error) { /* privat browsertilstand */ }
+  }
+  return tema;
+}
+
+/// Watches the clock so an automatic switch happens without a reload.
+function watchTheme() {
+  if (state.themeTimer) clearInterval(state.themeTimer);
+  state.themeTimer = setInterval(function () {
+    if (themeForNow(state.settings) !== document.documentElement.dataset.theme) {
+      applyTheme(state.settings);
+    }
+  }, 30000);
+}
+
 function renderSummary() {
   const summary = state.summary;
   if (!summary) return;
   const settings = summary.settings || {};
   state.settings = settings;
+  applyTheme(settings);
   const displayName = settings.display_name || "Familiedashboard";
   $("#brand-title").textContent = displayName;
   $("#brand-subtitle").textContent = settings.location_name || "Din families hjem";
@@ -304,10 +374,15 @@ function renderForsideHours(weather, settings) {
     // og tomme felter bare støjer paa en stor skærm.
     const wet = Number.isFinite(rain) && rain >= 30;
     const label = index === 0 ? "Nu" : String(hour.time || "").slice(11, 13);
+    const vist = temperature === null ? "--" : `${Math.round(temperature)}°`;
+    // Tolv kolonner giver kun 162 px pr. kolonne, og en to-cifret minusværdi
+    // som -12° bliver bred nok til at løbe ind i naboen. Sådanne
+    // temperaturer får derfor en mindre skrift.
+    const lang = vist.length >= 4 ? " hour__temp--lang" : "";
     return `<div class="hour${wet ? " er-vaad" : ""}">
       <p class="hour__tid">${escapeHtml(label)}</p>
       <p class="hour__vejr">${weatherGlyph(hour.weather_code)}</p>
-      <p class="hour__temp">${temperature === null ? "--" : Math.round(temperature)}°</p>
+      <p class="hour__temp${lang}">${vist}</p>
       <p class="hour__regn">${wet ? `${Math.round(rain)}%` : ""}</p>
     </div>`;
   }).join("");
@@ -831,6 +906,9 @@ function renderSettings(summary) {
   $("#setting-location").value = settings.location_name || "";
   $("#setting-latitude").value = settings.latitude || "";
   $("#setting-longitude").value = settings.longitude || "";
+  $("#setting-theme").value = ["light", "dark"].includes(settings.theme) ? settings.theme : "auto";
+  $("#setting-theme-day").value = settings.theme_day_start || "07:00";
+  $("#setting-theme-night").value = settings.theme_night_start || "20:00";
   const target = $("#member-settings-list");
   target.innerHTML = summary.members?.length ? summary.members.map((member) => `<div class="settings-list-item"><div class="member-item"><div class="avatar" style="background:${escapeHtml(member.color || "#5c7cfa")}">${escapeHtml(initials(member.name))}</div><div class="member-copy"><strong>${escapeHtml(member.name)}</strong><span>Familiemedlem</span></div></div><div class="frame-actions"><button class="icon-button" data-edit-member="${member.id}" type="button" aria-label="Rediger">✎</button><button class="icon-button" data-delete-member="${member.id}" type="button" aria-label="Slet">×</button></div></div>`).join("") : `<div class="empty-state">Ingen medlemmer endnu.</div>`;
   const sources = summary.sources || [];
@@ -1421,6 +1499,19 @@ function bindEvents() {
   $$("[data-view-link]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.viewLink)));
   $("#refresh-button").addEventListener("click", () => loadSummary());
   $("#settings-shortcut").addEventListener("click", () => showView("settings"));
+  // Knappen vender mellem lyst og mørkt og gemmer valget. Tilbage til
+  // automatisk skift gøres i indstillingerne, hvor klokkeslættene ligger.
+  $("#theme-toggle").addEventListener("click", async () => {
+    const nu = themeForNow(state.settings) === "light" ? "dark" : "light";
+    state.settings = { ...state.settings, theme: nu };
+    applyTheme(state.settings);
+    try {
+      await api("/api/settings", { method: "PATCH", body: { theme: nu } });
+      showToast(nu === "light" ? "Lyst tema" : "Mørkt tema");
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
   $("#logout-button").addEventListener("click", async () => { await api("/api/auth/logout", { method: "POST" }).catch(() => {}); showLogin(); });
   bindLayoutEditor();
   $("#add-calendar-button").addEventListener("click", () => openCalendarModal(null, "calendar"));

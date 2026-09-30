@@ -207,6 +207,71 @@ def test_runtime_settings_are_applied_to_summary(tmp_path):
         main.weather = old_weather
 
 
+def test_theme_settings_round_trip_and_validation(tmp_path):
+    old_database = main.database
+    old_synchronizer_database = main.synchronizer.database
+    database = Database(tmp_path / "theme.db")
+    main.database = database
+    main.synchronizer.database = database
+    try:
+        # En ny database skal starte med automatisk skift og fornuftige
+        # klokkeslæt, ellers er vægskærmen hvid indtil nogen rører ved.
+        start = database.get_settings()
+        assert start["theme"] == "auto"
+        assert start["theme_day_start"] == "07:00"
+        assert start["theme_night_start"] == "20:00"
+        with TestClient(main.app) as client:
+            assert client.post("/api/auth/login", json={"password": "family"}).status_code == 200
+            csrf = client.cookies.get("fd_csrf")
+            headers = {"X-FD-CSRF": csrf}
+            assert (
+                client.patch(
+                    "/api/settings",
+                    json={
+                        "theme": "light",
+                        "theme_day_start": "08:45",
+                        "theme_night_start": "21:00",
+                    },
+                    headers=headers,
+                ).status_code
+                == 200
+            )
+            summary = client.get("/api/dashboard/summary").json()
+            assert summary["settings"]["theme"] == "light"
+            assert summary["settings"]["theme_day_start"] == "08:45"
+            assert summary["settings"]["theme_night_start"] == "21:00"
+            # Kun de tre rigtige værdier slipper igennem, ellers ville en
+            # skrivefejl gøre skærmen hvid uden at nogen kunne merke det.
+            assert (
+                client.patch(
+                    "/api/settings", json={"theme": "neon"}, headers=headers
+                ).status_code
+                == 422
+            )
+            # Og klokkeslættene skal ligne klokkeslæt.
+            assert (
+                client.patch(
+                    "/api/settings",
+                    json={"theme_day_start": "halv otte"},
+                    headers=headers,
+                ).status_code
+                == 422
+            )
+            assert (
+                client.patch(
+                    "/api/settings",
+                    json={"theme_night_start": "25:00"},
+                    headers=headers,
+                ).status_code
+                == 422
+            )
+            # Efter de afviste forsøg skal det stadig være det gemte.
+            assert client.get("/api/dashboard/summary").json()["settings"]["theme"] == "light"
+    finally:
+        main.database = old_database
+        main.synchronizer.database = old_synchronizer_database
+
+
 def test_calendar_kinds_are_filtered(tmp_path):
     old_database = main.database
     old_synchronizer_database = main.synchronizer.database

@@ -8,6 +8,17 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/assets/styles.css">
   <script>window.__FD_BUILD__ = "{{BUILD_ID}}";</script>
+  <!-- Sætter temaet før der tegnes noget, så en vægskærm ikke blinker lys
+       i et mørkt rum mens serveren endnu ikke har svaret. Sidste tema
+       huskes; uden et gemt tema spørges skærmen selv. -->
+  <script>
+    try {
+      var gemtTema = localStorage.getItem("fd-theme");
+      var startTema = gemtTema || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      document.documentElement.dataset.theme = startTema;
+      document.documentElement.style.colorScheme = startTema;
+    } catch (error) { /* privat browsertilstand */ }
+  </script>
   <title>Familiedashboard</title>
 </head>
 <body>
@@ -42,6 +53,7 @@
       </div>
       <div class="topbar-actions">
         <span class="connection-pill" id="connection-pill"><span class="status-dot"></span> Forbinder</span>
+        <button class="icon-button" id="theme-toggle" type="button" aria-label="Skift mellem lyst og mørkt" title="Skift tema">◐</button>
         <button class="icon-button" id="refresh-button" type="button" aria-label="Opdater dashboard" title="Opdater">↻</button>
         <button class="icon-button" id="settings-shortcut" type="button" aria-label="Åbn indstillinger" title="Indstillinger">⚙</button>
       </div>
@@ -298,6 +310,14 @@
               <label for="setting-greeting">Hilsen</label><input id="setting-greeting" name="greeting" type="text" maxlength="240">
               <label for="setting-location">Sted</label><input id="setting-location" name="location_name" type="text" maxlength="120">
               <div class="form-row"><div><label for="setting-latitude">Breddegrad</label><input id="setting-latitude" name="latitude" type="number" step="any"></div><div><label for="setting-longitude">Længdegrad</label><input id="setting-longitude" name="longitude" type="number" step="any"></div></div>
+              <p class="eyebrow">Udseende</p>
+              <label for="setting-theme">Tema</label>
+              <select id="setting-theme" name="theme">
+                <option value="auto">Skift automatisk efter tid på dagen</option>
+                <option value="light">Lyst hele tiden</option>
+                <option value="dark">Mørkt hele tiden</option>
+              </select>
+              <div class="form-row"><div><label for="setting-theme-day">Dagtema fra kl.</label><input id="setting-theme-day" name="theme_day_start" type="time"></div><div><label for="setting-theme-night">Aftentema fra kl.</label><input id="setting-theme-night" name="theme_night_start" type="time"></div></div>
               <button class="button primary" type="submit">Gem profil</button>
             </form>
           </article>

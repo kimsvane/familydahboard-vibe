@@ -13,6 +13,11 @@ DEFAULT_SETTINGS = {
     "latitude": "55.6761",
     "longitude": "12.5683",
     "temperature_unit": "celsius",
+    # Tema. "auto" skifter mellem lyst og mørkt efter klokkeslæt,
+    # så vægskærmen ikke er lys i en mørk stue hele aftenen.
+    "theme": "auto",
+    "theme_day_start": "07:00",
+    "theme_night_start": "20:00",
     "show_seconds": "true",
     "calendar_refresh_minutes": "15",
     "weather_enabled": "true",

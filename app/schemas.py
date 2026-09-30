@@ -137,7 +137,13 @@ class SettingsUpdate(Model):
     temperature_unit: Optional[Literal["celsius", "fahrenheit"]] = None
     show_seconds: Optional[bool] = None
     weather_enabled: Optional[bool] = None
-    theme: Optional[str] = Field(default=None, max_length=40)
+    theme: Optional[Literal["auto", "dark", "light"]] = None
+    theme_day_start: Optional[str] = Field(
+        default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$"
+    )
+    theme_night_start: Optional[str] = Field(
+        default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$"
+    )
     reminders_enabled: Optional[bool] = None
     reminders_source: Optional[Literal["caldav", "bridge"]] = None
     reminders_bridge_url: Optional[str] = Field(default=None, max_length=300)

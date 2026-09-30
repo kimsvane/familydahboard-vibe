@@ -64,7 +64,7 @@ context.globalThis = context;
 vm.createContext(context);
 vm.runInContext(source, context, { filename: "app.js" });
 
-const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature } = context;
+const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature, themeForNow, clockMinutes } = context;
 
 let bestævrelser = 0;
 const tjek = (navn, kør) => {
@@ -151,6 +151,76 @@ tjek("temperatur omregnes til fahrenheit naar det er valgt", () => {
   assert.equal(Math.round(toDisplayTemperature(20, { temperature_unit: "fahrenheit" })), 68);
   assert.equal(toDisplayTemperature(null, {}), null);
   assert.equal(toDisplayTemperature("ingen værdi", {}), null);
+});
+
+// Datoer laves med tal, ikke strenge, så testen er uafhængig af hvilken
+// tidszone den kører i. 2026-10-03 er en lørdag, men det er ligegyldigt
+// her: kun klokkeslættet er tale om.
+const klokken = (time) => {
+  const [time_, minut] = time.split(":").map(Number);
+  return new Date(2026, 9, 3, time_, minut, 0);
+};
+
+tjek("temaForNow findes", () => {
+  assert.equal(typeof themeForNow, "function");
+});
+
+tjek("manuelt valgt tema ignorerer uret", () => {
+  // En mørk vægskærm skal ikke skifte, bare fordi det er blevet morgen.
+  assert.equal(themeForNow({ theme: "dark" }, klokken("12:00")), "dark");
+  assert.equal(themeForNow({ theme: "light" }, klokken("23:00")), "light");
+  assert.equal(themeForNow({ theme: "LIGHT" }, klokken("23:00")), "light");
+});
+
+tjek("automatisk tema er lyst om dagen og mørkt om aftenen", () => {
+  const indstillinger = { theme: "auto", theme_day_start: "07:00", theme_night_start: "20:00" };
+  assert.equal(themeForNow(indstillinger, klokken("06:59")), "dark");
+  assert.equal(themeForNow(indstillinger, klokken("07:00")), "light");
+  assert.equal(themeForNow(indstillinger, klokken("12:00")), "light");
+  assert.equal(themeForNow(indstillinger, klokken("19:59")), "light");
+  assert.equal(themeForNow(indstillinger, klokken("20:00")), "dark");
+  assert.equal(themeForNow(indstillinger, klokken("23:30")), "dark");
+  assert.equal(themeForNow(indstillinger, klokken("03:00")), "dark");
+});
+
+tjek("egne klokkeslaet bliver brugt", () => {
+  const indstillinger = { theme: "auto", theme_day_start: "09:30", theme_night_start: "22:15" };
+  assert.equal(themeForNow(indstillinger, klokken("09:00")), "dark");
+  assert.equal(themeForNow(indstillinger, klokken("09:30")), "light");
+  assert.equal(themeForNow(indstillinger, klokken("22:14")), "light");
+  assert.equal(themeForNow(indstillinger, klokken("22:15")), "dark");
+});
+
+tjek("nat der gaar over midnat stadig virker", () => {
+  // Dag efter nat, som naar man vil have lys sent og tidligt. Intervallet
+  // er saaledes 22:00-06:00, og det er den anden rækkefoelge end normal.
+  const indstillinger = { theme: "auto", theme_day_start: "22:00", theme_night_start: "06:00" };
+  assert.equal(themeForNow(indstillinger, klokken("23:00")), "light");
+  assert.equal(themeForNow(indstillinger, klokken("05:59")), "light");
+  assert.equal(themeForNow(indstillinger, klokken("06:00")), "dark");
+  assert.equal(themeForNow(indstillinger, klokken("12:00")), "dark");
+  assert.equal(themeForNow(indstillinger, klokken("21:59")), "dark");
+  assert.equal(themeForNow(indstillinger, klokken("22:00")), "light");
+});
+
+tjek("manglende eller ugyldige tidsfelter falder tilbage paa fornuft", () => {
+  // Ellers ville en tom indstilling gøre hele vaegskaermen hvid.
+  assert.equal(themeForNow({}, klokken("12:00")), "light");
+  assert.equal(themeForNow({}, klokken("23:00")), "dark");
+  assert.equal(themeForNow({ theme: "auto", theme_day_start: "halv syv" }, klokken("23:00")), "dark");
+  assert.equal(themeForNow(null, klokken("12:00")), "light");
+});
+
+tjek("clockMinutes regner om og afviser vrøvl", () => {
+  assert.equal(clockMinutes("07:30", 0), 450);
+  assert.equal(clockMinutes("00:00", 5), 0);
+  assert.equal(clockMinutes("23:59", 5), 1439);
+  assert.equal(clockMinutes("25:00", 5), 5);
+  assert.equal(clockMinutes("07:99", 5), 5);
+  assert.equal(clockMinutes("0700", 5), 5);
+  assert.equal(clockMinutes("", 5), 5);
+  assert.equal(clockMinutes(null, 5), 5);
+  assert.equal(clockMinutes(undefined, 5), 5);
 });
 
 console.log(`\n${bestævrelser} tjek gennemforsidens logik, alle bestaaet.`);
