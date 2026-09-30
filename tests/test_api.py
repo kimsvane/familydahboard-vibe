@@ -343,3 +343,286 @@ def test_calendar_kinds_are_filtered(tmp_path):
     finally:
         main.database = old_database
         main.synchronizer.database = old_synchronizer_database
+
+
+class _StubWeather:
+    enabled = True
+
+    async def current(self, **values):
+        return {"temperature": 20, "location": values.get("location_name", "Testby")}
+
+    async def hourly(self, **values):
+        return {"hourly": []}
+
+
+def _kalender(database, navn, kind="calendar"):
+    return database.create_source(
+        name=navn,
+        url="",
+        source_type="ical",
+        kind=kind,
+        color="#f59e0b",
+        enabled=True,
+    )
+
+
+def _begivenhed(database, source_id, titel, start, slut=None):
+    database.replace_source_events(
+        source_id,
+        [
+            {
+                "id": f"{source_id}-{titel}",
+                "uid": f"{source_id}-{titel}",
+                "title": titel,
+                "start_at": start,
+                "end_at": slut or start,
+                "all_day": False,
+            }
+        ],
+    )
+
+
+def _login(client):
+    client.post("/api/auth/login", json={"password": "family"})
+    return {"X-FD-CSRF": client.cookies.get("fd_csrf")}
+
+
+def test_huskelinje_kan_oprettes_og_slettes(tmp_path):
+    database = Database(tmp_path / "dashboard.db")
+    main.database = database
+    main.synchronizer.database = database
+    main.weather = _StubWeather()
+    try:
+        with TestClient(main.app) as client:
+            headers = _login(client)
+            svar = client.post(
+                "/api/event-reminders",
+                json={"source_kind": "calendar", "match_value": "Microracer", "text": "Husk gymnastiktøj"},
+                headers=headers,
+            )
+            assert svar.status_code == 201
+            linje = svar.json()["event_reminder"]
+            assert linje["match_value"] == "Microracer"
+            assert linje["match_mode"] == "exact"
+            assert linje["lead_hours"] == 12
+            assert linje["enabled"] is True
+            assert linje["source_id"] is None
+
+            liste = client.get("/api/event-reminders", headers=headers).json()["event_reminders"]
+            assert len(liste) == 1
+            assert liste[0]["id"] == linje["id"]
+
+            rettet = client.patch(
+                f"/api/event-reminders/{linje['id']}",
+                json={"text": "Husk holdbøjter", "lead_hours": 3, "enabled": False},
+                headers=headers,
+            )
+            assert rettet.status_code == 200
+            assert rettet.json()["event_reminder"]["text"] == "Husk holdbøjter"
+            assert rettet.json()["event_reminder"]["lead_hours"] == 3
+            assert rettet.json()["event_reminder"]["enabled"] is False
+
+            assert client.delete(f"/api/event-reminders/{linje['id']}", headers=headers).json() == {
+                "deleted": True
+            }
+            assert client.get("/api/event-reminders", headers=headers).json()["event_reminders"] == []
+    finally:
+        main.database = Database(tmp_path / "unused.db")
+        main.synchronizer.database = main.database
+
+
+def test_huskelinje_giver_paamindelse_i_summary(tmp_path):
+    from datetime import datetime, timedelta
+
+    database = Database(tmp_path / "dashboard.db", {"timezone": "Europe/Copenhagen"})
+    main.database = database
+    main.synchronizer.database = database
+    main.weather = _StubWeather()
+    try:
+        familie = _kalender(database, "Familie")
+        skole = _kalender(database, "Skole", kind="school")
+        nu = datetime.now()
+        start = (nu + timedelta(hours=2)).isoformat(timespec="seconds")
+        _begivenhed(database, familie["id"], "Microracer", start)
+        # Samme titel i familiekalenderen skal ikke give skoleteksten.
+        _begivenhed(database, skole["id"], "IDR", start)
+
+        with TestClient(main.app) as client:
+            headers = _login(client)
+            client.post(
+                "/api/event-reminders",
+                json={"source_kind": "calendar", "match_value": "Microracer", "text": "Husk gymnastiktøj"},
+                headers=headers,
+            )
+            client.post(
+                "/api/event-reminders",
+                json={"source_kind": "school", "match_value": "IDR", "text": "Husk idrætstøj"},
+                headers=headers,
+            )
+            summary = client.get("/api/dashboard/summary", headers=headers).json()
+            hints = summary["event_hints"]
+            assert {item["text"] for item in hints} == {"Husk gymnastiktøj", "Husk idrætstøj"}
+            # Begge har både kalendertype og arrangement med.
+            idraet = [item for item in hints if item["text"] == "Husk idrætstøj"][0]
+            assert idraet["source_kind"] == "school"
+            assert idraet["event_title"] == "IDR"
+            assert idraet["local_time"]
+
+            # Slettes den ene linje, forsvinder kun den paamindelse.
+            linjer = client.get("/api/event-reminders", headers=headers).json()["event_reminders"]
+            idraets_linje = [item for item in linjer if item["text"] == "Husk idrætstøj"][0]
+            client.delete(f"/api/event-reminders/{idraets_linje['id']}", headers=headers)
+            hints = client.get("/api/dashboard/summary", headers=headers).json()["event_hints"]
+            assert [item["text"] for item in hints] == ["Husk gymnastiktøj"]
+    finally:
+        main.database = Database(tmp_path / "unused.db")
+        main.synchronizer.database = main.database
+
+
+def test_uden_huskelinjer_er_listen_tom_paa_forsiden(tmp_path):
+    database = Database(tmp_path / "dashboard.db")
+    main.database = database
+    main.synchronizer.database = database
+    main.weather = _StubWeather()
+    try:
+        with TestClient(main.app) as client:
+            headers = _login(client)
+            assert client.get("/api/dashboard/summary", headers=headers).json()["event_hints"] == []
+    finally:
+        main.database = Database(tmp_path / "unused.db")
+        main.synchronizer.database = main.database
+
+
+def test_huskelinje_valideres(tmp_path):
+    database = Database(tmp_path / "dashboard.db")
+    main.database = database
+    main.synchronizer.database = database
+    main.weather = _StubWeather()
+    try:
+        kalender = _kalender(database, "Familie")
+        with TestClient(main.app) as client:
+            headers = _login(client)
+            # Tomt eller manglende tekst er ikke en brugbar huskelinje.
+            assert client.post(
+                "/api/event-reminders", json={"match_value": "Microracer", "text": "  "}, headers=headers
+            ).status_code == 422
+            assert client.post(
+                "/api/event-reminders", json={"text": "Husk noget"}, headers=headers
+            ).status_code == 422
+            # En kalender der ikke findes.
+            assert client.post(
+                "/api/event-reminders",
+                json={"match_value": "Microracer", "text": "Husk noget", "source_id": 9999},
+                headers=headers,
+            ).status_code == 422
+            # Uden for det tilladte forvarsel.
+            assert client.post(
+                "/api/event-reminders",
+                json={"match_value": "Microracer", "text": "Husk noget", "lead_hours": 999},
+                headers=headers,
+            ).status_code == 422
+            # Ukendt kalendertype og matchetilstand.
+            assert client.post(
+                "/api/event-reminders",
+                json={"source_kind": "hockey", "match_value": "IDR", "text": "Husk noget"},
+                headers=headers,
+            ).status_code == 422
+            assert client.post(
+                "/api/event-reminders",
+                json={"match_mode": "begynder", "match_value": "IDR", "text": "Husk noget"},
+                headers=headers,
+            ).status_code == 422
+            # En gyldig linje med en rigtig kalender godtages.
+            assert client.post(
+                "/api/event-reminders",
+                json={"match_value": "Microracer", "text": "Husk noget", "source_id": kalender["id"]},
+                headers=headers,
+            ).status_code == 201
+            # Ukendte linjer kan ikke rettes eller slettes.
+            assert client.patch(
+                "/api/event-reminders/9999", json={"text": "Husk noget andet"}, headers=headers
+            ).status_code == 404
+            assert client.delete("/api/event-reminders/9999", headers=headers).status_code == 404
+    finally:
+        main.database = Database(tmp_path / "unused.db")
+        main.synchronizer.database = main.database
+
+
+def test_huskelinjer_kræver_login(tmp_path):
+    database = Database(tmp_path / "dashboard.db")
+    main.database = database
+    main.synchronizer.database = database
+    try:
+        with TestClient(main.app) as client:
+            assert client.get("/api/event-reminders").status_code == 401
+            assert client.post(
+                "/api/event-reminders", json={"match_value": "IDR", "text": "Husk noget"}
+            ).status_code == 401
+    finally:
+        main.database = Database(tmp_path / "unused.db")
+        main.synchronizer.database = main.database
+
+
+def test_flere_aktive_huskelinjer_end_væggen_kan_taale_bliver_meldt(tmp_path):
+    from datetime import datetime, timedelta
+
+    database = Database(tmp_path / "dashboard.db", {"timezone": "Europe/Copenhagen"})
+    main.database = database
+    main.synchronizer.database = database
+    main.weather = _StubWeather()
+    try:
+        familie = _kalender(database, "Familie")
+        start = (datetime.now() + timedelta(hours=2)).isoformat(timespec="seconds")
+        _begivenhed(database, familie["id"], "Aftale", start)
+
+        with TestClient(main.app) as client:
+            headers = _login(client)
+            for nummer in range(1, 6):
+                client.post(
+                    "/api/event-reminders",
+                    json={"match_value": "Aftale", "text": f"Husk ting {nummer}"},
+                    headers=headers,
+                )
+            summary = client.get("/api/dashboard/summary", headers=headers).json()
+            # Der vises højst tre på væggen, ...
+            assert len(summary["event_hints"]) == 3
+            # ... men indstillingerne får at vide at der er flere.
+            assert summary["event_hints_total"] == 5
+            # Derfor skal total-tallet også over i settings-payloaden.
+            settings = client.get("/api/settings", headers=headers).json()
+            assert "settings" in settings
+    finally:
+        main.database = Database(tmp_path / "unused.db")
+        main.synchronizer.database = main.database
+
+
+def test_regel_kan_loeses_fra_en_kalender_tilbage_til_alle(tmp_path):
+    database = Database(tmp_path / "dashboard.db")
+    main.database = database
+    main.synchronizer.database = database
+    main.weather = _StubWeather()
+    try:
+        kalender = _kalender(database, "Familie")
+        with TestClient(main.app) as client:
+            headers = _login(client)
+            laas = client.post(
+                "/api/event-reminders",
+                json={"match_value": "IDR", "text": "Husk noget", "source_id": kalender["id"]},
+                headers=headers,
+            ).json()["event_reminder"]
+            assert laas["source_id"] == kalender["id"]
+            # En eksplicit null skal kunne rydde låsen, ellers kunne
+            # brugeren aldrig gå tilbage til "alle kalendere".
+            los = client.patch(
+                f"/api/event-reminders/{laas['id']}", json={"source_id": None}, headers=headers
+            )
+            assert los.status_code == 200
+            assert los.json()["event_reminder"]["source_id"] is None
+            # Og en tekstændring må ikke ved et uheld låse igen.
+            kun_tekst = client.patch(
+                f"/api/event-reminders/{laas['id']}", json={"text": "Husk noget andet"}, headers=headers
+            )
+            assert kun_tekst.json()["event_reminder"]["source_id"] is None
+    finally:
+        main.database = Database(tmp_path / "unused.db")
+        main.synchronizer.database = main.database

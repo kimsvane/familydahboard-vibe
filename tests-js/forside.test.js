@@ -64,7 +64,8 @@ context.globalThis = context;
 vm.createContext(context);
 vm.runInContext(source, context, { filename: "app.js" });
 
-const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature, themeForNow, clockMinutes } = context;
+const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature, themeForNow, clockMinutes,
+  renderForsideHints, renderReminderSourceOptions, reminderSourceLabel, reminderMatchLabel } = context;
 
 let bestævrelser = 0;
 const tjek = (navn, kør) => {
@@ -221,6 +222,95 @@ tjek("clockMinutes regner om og afviser vrøvl", () => {
   assert.equal(clockMinutes("", 5), 5);
   assert.equal(clockMinutes(null, 5), 5);
   assert.equal(clockMinutes(undefined, 5), 5);
+});
+
+/* ================= Husk paa aftaler ================= */
+
+// Grib det element renderForsideHints skriver i, saa vi kan se
+// resultatet uden en browser.
+function medHuskeTarget(kør) {
+  const fanget = { hidden: false, innerHTML: "" };
+  const gemt = context.document.querySelector;
+  context.document.querySelector = (vælger) => (vælger === "#forside-hints" ? fanget : noopElement);
+  try { kør(fanget); } finally { context.document.querySelector = gemt; }
+  return fanget;
+}
+
+tjek("renderForsideHints findes", () => {
+  assert.equal(typeof renderForsideHints, "function");
+});
+
+tjek("uden aktive huskelinjer skjuler vi hele boksen", () => {
+  // En tom boks med overskriften "Husk" paa vaeggen er bare stoer.
+  const mål = medHuskeTarget((el) => renderForsideHints([], el));
+  assert.equal(mål.hidden, true);
+  assert.equal(mål.innerHTML, "");
+  const uden = medHuskeTarget((el) => renderForsideHints(undefined, el));
+  assert.equal(uden.hidden, true);
+});
+
+tjek("en aktiv huskelinje viser teksten", () => {
+  const mål = medHuskeTarget((el) => renderForsideHints([{ text: "Husk gymnastiktøj", local_time: "10:00", in_progress: false }], el));
+  assert.equal(mål.hidden, false);
+  assert.ok(mål.innerHTML.includes("Husk gymnastiktøj"));
+  assert.ok(mål.innerHTML.includes("forside-hint"));
+  assert.ok(mål.innerHTML.includes("10:00"));
+});
+
+tjek("titel med HTML-escapes", () => {
+  // Ellers kunne en kalendertitel faa script ind paa vaeggen.
+  const mål = medHuskeTarget((el) => renderForsideHints([{ text: "<script>alert(1)</script>", local_time: "10:00" }], el));
+  assert.ok(!mål.innerHTML.includes("<script>"));
+  assert.ok(mål.innerHTML.includes("&lt;script&gt;"));
+});
+
+tjek("igang-i-gang og heldagsaftaler faar en forstaaelig tid", () => {
+  const igang = medHuskeTarget((el) => renderForsideHints([{ text: "Husk sko", in_progress: true, local_time: "10:00" }], el));
+  assert.ok(igang.innerHTML.includes("igang"));
+  const hel = medHuskeTarget((el) => renderForsideHints([{ text: "Husk sko", all_day: true, local_time: "00:00" }], el));
+  assert.ok(hel.innerHTML.includes("Hele dagen"));
+});
+
+tjek("flere huskelinjer vises alle", () => {
+  const mål = medHuskeTarget((el) => renderForsideHints([
+    { text: "Husk gymnastiktøj", local_time: "10:00" },
+    { text: "Husk sko", local_time: "14:00" },
+    { text: "Husk idrætstøj", local_time: "08:00" },
+  ], el));
+  const antal = (mål.innerHTML.match(/forside-hint__tekst/g) || []).length;
+  assert.equal(antal, 3);
+});
+
+tjek("huskelinjer har hverken klokketid eller tid ved heldag", () => {
+  // Uden tid skal der ikke ligge en tom span.
+  const mål = medHuskeTarget((el) => renderForsideHints([{ text: "Husk noget", local_time: "" }], el));
+  assert.ok(!mål.innerHTML.includes("forside-hint__hvornår"));
+});
+
+tjek("kildelisten følger den valgte kalendertype", () => {
+  // Kalendertypen drives af value, listen skrives til innerHTML.
+  const type = { value: "school" };
+  const liste = { innerHTML: "", value: "" };
+  const gemt = context.document.querySelector;
+  context.document.querySelector = (vælger) => {
+    if (vælger === "#reminder-source-kind") return type;
+    if (vælger === "#reminder-source-id") return liste;
+    return noopElement;
+  };
+  const kilder = [
+    { id: 1, name: "Familien", kind: "calendar" },
+    { id: 2, name: "Skolen", kind: "school" },
+  ];
+  try {
+    renderReminderSourceOptions(kilder);
+    // Skoleskema som valgt type: kun skolen i listen.
+    assert.ok(liste.innerHTML.includes("Skolen"));
+    assert.ok(!liste.innerHTML.includes("Familien"));
+    type.value = "calendar";
+    renderReminderSourceOptions(kilder);
+    assert.ok(liste.innerHTML.includes("Familien"));
+    assert.ok(!liste.innerHTML.includes("Skolen"));
+  } finally { context.document.querySelector = gemt; }
 });
 
 console.log(`\n${bestævrelser} tjek gennemforsidens logik, alle bestaaet.`);

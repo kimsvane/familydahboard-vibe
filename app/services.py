@@ -138,6 +138,117 @@ def events_for_range(
     return expand_events(raw_events, range_start, range_end, timezone_name)
 
 
+def _title_matches(title: str, mode: str, value: str) -> bool:
+    """Sammenligner en begivenhedstitel med det, brugeren har skrevet.
+
+    Nøjagtig er standard, fordi den er forudsigelig: en linje på "IDR"
+    rammer præcis lektionen der hedder IDR og ikke en hvilken som helst
+    titel hvor IDR bare optræder et sted. Indeholder er der til dem der
+    har titler med en fast indpakning, som "Microracer i Østerbro".
+    """
+    haystack = " ".join(str(title or "").split()).casefold()
+    needle = " ".join(str(value or "").split()).casefold()
+    if not haystack or not needle:
+        return False
+    if mode == "contains":
+        return needle in haystack
+    return haystack == needle
+
+
+def active_event_hints(
+    rules: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    now: datetime,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    """Finder de huskelinjer der er aktive lige nu.
+
+    En linje er aktiv fra lead_hours før aftalen begynder og indtil den
+    er slut, så "husk idrætstøj" dukker op om aftenen før en tidlig
+    idrætstime og forsvinder igen bagefter. Holdagser og aftaler der
+    allerede er i gang tæller stadig, ellers forsvandt de præcis mens
+    nogen skulle bruge dem.
+
+    Hver regel bidrager højst én gang, selv hvis den rammer flere
+    forekomster af det samme skemalelemne. To forskellige regler om den
+    samme aftale vises begge, for det er to forskellige ting at huske.
+    """
+    active_rules = [rule for rule in rules if rule.get("enabled", True)]
+    if not active_rules or not events:
+        return []
+    moment = now
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    result: list[dict[str, Any]] = []
+    for event in events:
+        start = _parse_moment(event.get("start_at"))
+        if start is None:
+            continue
+        end = _parse_moment(event.get("end_at")) or start
+        for rule in active_rules:
+            if str(rule.get("source_kind") or "calendar") != str(
+                event.get("source_kind") or "calendar"
+            ):
+                continue
+            # En linje kan være snævert til én kalender, eller gælde alle
+            # af samme slags. source_id None betyder alle.
+            rule_source = rule.get("source_id")
+            if rule_source not in (None, "") and int(rule_source) != int(
+                event.get("source_id") or 0
+            ):
+                continue
+            if not _title_matches(
+                event.get("title"),
+                str(rule.get("match_mode") or "exact"),
+                rule.get("match_value"),
+            ):
+                continue
+            try:
+                lead_hours = max(0, min(168, int(rule.get("lead_hours", 12))))
+            except (TypeError, ValueError):
+                lead_hours = 12
+            if moment < start - timedelta(hours=lead_hours):
+                continue
+            if moment > end:
+                continue
+            result.append(
+                {
+                    "id": int(rule["id"]),
+                    "text": str(rule["text"]),
+                    "event_title": event.get("title", ""),
+                    "event_id": event.get("id"),
+                    "local_time": event.get("local_start_time") or "",
+                    "all_day": bool(event.get("all_day")),
+                    "source_name": event.get("source_name", ""),
+                    "source_kind": event.get("source_kind", "calendar"),
+                    "in_progress": bool(event.get("all_day")) or start <= moment <= end,
+                }
+            )
+    # Én regel én huskelinje, uanset hvor mange forekomster den ramte.
+    kun_en_pr_regel = {}
+    for item in result:
+        kun_en_pr_regel.setdefault(item["id"], item)
+    result = list(kun_en_pr_regel.values())
+    # Og samme tekst skal ikke stå to gange på væggen, selv om den
+    # kommer fra to forskellige regler.
+    unik_tekst = {}
+    for item in result:
+        unik_tekst.setdefault(item["text"], item)
+    result = list(unik_tekst.values())
+    result.sort(key=lambda item: (item["local_time"] == "", item["local_time"], item["text"]))
+    return result[:limit]
+
+
+def _parse_moment(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 class WeatherService:
     def __init__(self, settings: Settings):
         self.settings = settings

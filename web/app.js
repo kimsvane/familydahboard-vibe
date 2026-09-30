@@ -22,6 +22,8 @@ const state = {
   clockTimer: null,
   themeTimer: null,
   settings: {},
+  calendars: [],
+  eventReminders: [],
   cameras: [],
   cameraBroken: new Set(),
   cameraLive: new Set(),
@@ -450,11 +452,32 @@ function renderForsideBirthday(birthdays) {
     <p class="fodselsdag__dage">${escapeHtml(days)}</p>`;
 }
 
+function renderForsideHints(hints = []) {
+  const target = $("#forside-hints");
+  const liste = Array.isArray(hints) ? hints : [];
+  // Uden en aktiv huskelinje skal der ikke stå en tom boks med en
+  // "Husk"-overskrift paa vaeggen. Skjult er renere end tomt.
+  if (!liste.length) {
+    target.hidden = true;
+    target.innerHTML = "";
+    return;
+  }
+  target.hidden = false;
+  target.innerHTML = liste.map((hint) => {
+    const tid = hint.all_day ? "Hele dagen" : hint.in_progress ? "igang" : hint.local_time || "";
+    return `<p class="forside-hint">
+      <span class="forside-hint__tekst">${escapeHtml(hint.text)}</span>
+      ${tid ? `<span class="forside-hint__hvornår">${escapeHtml(tid)}</span>` : ""}
+    </p>`;
+  }).join("");
+}
+
 function renderForside(summary) {
   const settings = summary?.settings || {};
   renderForsideHours(summary?.weather, settings);
   renderForsideEvents(familyEventsInNext24h(summary?.events || []));
   renderForsideBirthday(summary?.birthdays || []);
+  renderForsideHints(summary?.event_hints || []);
 }
 
 
@@ -552,6 +575,109 @@ function sourceStatus(source) {
 
 function sourceActions(source) {
   return `<div class="source-actions"><span class="source-status ${source.last_error ? "error" : ""}">${escapeHtml(sourceStatus(source))}</span><button class="icon-button" data-sync-source="${source.id}" type="button" aria-label="Synk">↻</button><button class="icon-button" data-edit-source="${source.id}" type="button" aria-label="Rediger">✎</button><button class="icon-button" data-delete-source="${source.id}" type="button" aria-label="Slet">×</button></div>`;
+}
+
+/* ================= Husk paa aftaler ================= */
+
+/* Kalenderens egen huskelinjer. Det er ikke iCloud-Paamindelser og
+   har intet med dem at gøre; de to skal bare ikke forveksles. */
+function reminderSourceLabel(rule, sources) {
+  const kind = rule.source_kind === "school" ? "Skoleskema" : "Familiekalender";
+  if (rule.source_id === null || rule.source_id === undefined) return `${kind} · alle`;
+  const source = sources.find((item) => String(item.id) === String(rule.source_id));
+  return `${kind} · ${source ? source.name : "ukendt kalender"}`;
+}
+
+function reminderMatchLabel(rule) {
+  return rule.match_mode === "contains" ? `indeholder “${rule.match_value}”` : `præcis “${rule.match_value}”`;
+}
+
+function renderEventReminders(reminders, sources) {
+  const target = $("#event-reminder-list");
+  if (!reminders.length) {
+    target.innerHTML = `<div class="empty-state">Ingen huskelinjer endnu. Føj en regel for hver aftale, du vil huske noget til.</div>`;
+    return;
+  }
+  // Der er plads til tre paa vaeggen. Hvis der er flere aktive, skal
+  // brugeren kende det, ellers virker det som om en regel bare er
+  // gaaet tabt.
+  const total = state.summary?.event_hints_total;
+  const skjult = typeof total === "number" && total > (state.summary?.event_hints || []).length
+    ? `<p class="muted small-copy">${total} huskelinjer er aktive lige nu. Der vises kun de 3 første på væggen under fødselsdagen.</p>`
+    : "";
+  target.innerHTML = skjult + reminders.map((rule) => `<div class="settings-list-item ${rule.enabled ? "" : "is-off"}">
+      <div class="member-copy">
+        <strong>${escapeHtml(rule.text)}</strong>
+        <span>${escapeHtml(reminderSourceLabel(rule, sources))} · ${escapeHtml(reminderMatchLabel(rule))} · ${rule.lead_hours} t før</span>
+      </div>
+      <div class="frame-actions">
+        <button class="icon-button" data-toggle-reminder="${rule.id}" type="button" aria-label="${rule.enabled ? "Slå fra" : "Slå til"}">${rule.enabled ? "◉" : "○"}</button>
+        <button class="icon-button" data-delete-reminder="${rule.id}" type="button" aria-label="Slet">×</button>
+      </div>
+    </div>`).join("");
+}
+
+/* Kildelisten skal kun vise kalendere af den valgte slags, elfter
+   ville en regel kunne pege paa et skoleskema og alligevel sige
+   "Familiekalender". */
+function renderReminderSourceOptions(sources) {
+  const kind = $("#reminder-source-kind").value;
+  const select = $("#reminder-source-id");
+  const matching = sources.filter((source) => (source.kind || "calendar") === kind);
+  const tidligere = select.value;
+  select.innerHTML = `<option value="">Alle ${kind === "school" ? "skoleskemaer" : "familiekalendere"}</option>`
+    + matching.map((source) => `<option value="${escapeHtml(source.id)}">${escapeHtml(source.name)}</option>`).join("");
+  // Behold valget hvis den stadig findes, ellers fald tilbage til alle.
+  select.value = matching.some((source) => String(source.id) === String(tidligere)) ? tidligere : "";
+}
+
+/* Datalisten er en hjælp til at skrive titlen rigtig. En titel der er
+   forkert, matcher præcis intet, og brugeren kan ikke se hvorfor. */
+function renderReminderTitleOptions(summary) {
+  const kind = $("#reminder-source-kind").value;
+  const titles = [...new Set((summary?.events || [])
+    .filter((event) => (event.source_kind || "calendar") === kind)
+    .map((event) => event.title)
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b, "da"));
+  $("#reminder-title-options").innerHTML = titles.map((title) => `<option value="${escapeHtml(title)}"></option>`).join("");
+}
+
+async function deleteEventReminder(id) {
+  if (!window.confirm("Vil du slette denne huskelinje?")) return;
+  try {
+    await api(`/api/event-reminders/${id}`, { method: "DELETE" });
+    await Promise.all([loadEventReminders(), loadSummary(true)]);
+    showToast("Huskelinje slettet");
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+/* En slået fra linje skal blive liggende, så brugeren kan tænde for den
+   igen senere i stedet for at skulle skrive den fra bunden. */
+async function toggleEventReminder(id) {
+  try {
+    const current = (state.eventReminders || []).find((rule) => String(rule.id) === String(id));
+    if (!current) return;
+    await api(`/api/event-reminders/${id}`, { method: "PATCH", body: { enabled: !current.enabled } });
+    await Promise.all([loadEventReminders(), loadSummary(true)]);
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+async function loadEventReminders() {
+  const [reminders, sources] = await Promise.all([
+    api("/api/event-reminders").catch(() => ({ event_reminders: [] })),
+    api("/api/calendars").catch(() => ({ calendars: [] })),
+  ]);
+  const sourceList = sources.calendars || [];
+  state.calendars = sourceList;
+  state.eventReminders = reminders.event_reminders || [];
+  renderReminderSourceOptions(sourceList);
+  renderEventReminders(reminders.event_reminders || [], sourceList);
+  renderReminderTitleOptions(state.summary);
+  return sourceList;
 }
 
 function renderSources(sources) {
@@ -1330,6 +1456,10 @@ function showView(view) {
   if (target === "calendar") loadCalendarEvents();
   if (target === "school") loadSchoolEvents();
   if (target === "cameras") loadCameras(true);
+  // Huskelinjerne laes ved hvert besog i indstillingerne, saa en regel
+  // tilfojet i en anden fane eller et kaldt reload ikke viser en gammel
+  // liste. Kalendertitlerne til datalisten kommer fra den seneste summary.
+  if (target === "settings") loadEventReminders();
   if (target === "layout") {
     if (state.layout) renderLayoutEditor();
     loadSummary(true);
@@ -1689,6 +1819,35 @@ function bindEvents() {
     const values = Object.fromEntries(new FormData(form).entries());
     try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); showToast("Indstillinger gemt"); } catch (error) { showToast(error.message, true); }
   });
+  $("#event-reminder-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const sourceId = form.elements.source_id.value;
+    try {
+      await api("/api/event-reminders", {
+        method: "POST",
+        body: {
+          source_kind: form.elements.source_kind.value,
+          // Tom streng ville blive sendt som "", som er en anden
+          // kalender end "alle". Den skal være null.
+          source_id: sourceId ? Number(sourceId) : null,
+          match_mode: form.elements.match_mode.value,
+          match_value: form.elements.match_value.value.trim(),
+          text: form.elements.text.value.trim(),
+          lead_hours: Number(form.elements.lead_hours.value) || 0,
+        },
+      });
+      form.elements.match_value.value = "";
+      form.elements.text.value = "";
+      await loadEventReminders();
+      await loadSummary(true);
+      showToast("Huskelinje gemt");
+    } catch (error) { showToast(error.message, true); }
+  });
+  $("#reminder-source-kind").addEventListener("change", async () => {
+    renderReminderSourceOptions(state.calendars || []);
+    renderReminderTitleOptions(state.summary);
+  });
   $("#calendar-prev-month").addEventListener("click", () => { state.calendarCursor = new Date(state.calendarCursor.getFullYear(), state.calendarCursor.getMonth() - 1, 1); loadCalendarEvents(); });
   $("#calendar-next-month").addEventListener("click", () => { state.calendarCursor = new Date(state.calendarCursor.getFullYear(), state.calendarCursor.getMonth() + 1, 1); loadCalendarEvents(); });
   $("#calendar-prev").addEventListener("click", () => selectCalendarWeek(-1));
@@ -1717,6 +1876,8 @@ function bindEvents() {
     if (target.dataset.liveCamera) toggleCameraLive(target.dataset.liveCamera);
     if (target.dataset.editCheck) openChecklistItemModal(state.summary.checklist.find((item) => String(item.id) === String(target.dataset.editCheck)));
     if (target.dataset.deleteCheck) deleteChecklistItem(target.dataset.deleteCheck, state.summary.checklist.find((item) => String(item.id) === String(target.dataset.deleteCheck))?.source === "icloud");
+    if (target.dataset.deleteReminder) deleteEventReminder(target.dataset.deleteReminder);
+    if (target.dataset.toggleReminder) toggleEventReminder(target.dataset.toggleReminder);
   });
   modalRoot.addEventListener("click", (event) => { if (event.target === modalRoot || event.target.closest("[data-close-modal]")) closeModal(); });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !modalRoot.hidden) closeModal(); });

@@ -93,6 +93,7 @@
           <section class="panel forside-panel forside-panel--birthday">
             <h2 class="forside-label">Næste fødselsdag</h2>
             <div class="forside-birthday" id="forside-birthday"></div>
+            <div class="forside-hints" id="forside-hints" hidden></div>
           </section>
         </div>
       </section>
@@ -375,6 +376,47 @@
               </div>
               <p class="muted small-copy" id="reminders-help">Listen, du vælger her, bliver tovejssynkroniseret med checklisten på dashboardet.</p>
             </form>
+          </article>
+          <article class="panel settings-card wide">
+            <div class="panel-heading"><div><p class="eyebrow">Kalenderen</p><h2>Husk på aftaler</h2></div><span class="muted small-copy">Kun til kalenderen · ikke iCloud</span></div>
+            <p class="section-copy">Skriv en regel for hver aftale, du vil huske noget til. Reglen dukker kun op på forsideklokken i tiden <strong>før</strong> aftalen starter, og forsvinder igen når den er slut.</p>
+            <form id="event-reminder-form" class="stack-form">
+              <div class="form-row">
+                <div>
+                  <label for="reminder-source-kind">Hvilken kalender?</label>
+                  <select id="reminder-source-kind" name="source_kind">
+                    <option value="calendar">Familiekalender</option>
+                    <option value="school">Skoleskema</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="reminder-source-id">Hvilken kalender præcist?</label>
+                  <select id="reminder-source-id" name="source_id"></select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div>
+                  <label for="reminder-match-value">Aftalens titel</label>
+                  <input id="reminder-match-value" name="match_value" type="text" maxlength="200" list="reminder-title-options" placeholder="Microracer" required>
+                  <datalist id="reminder-title-options"></datalist>
+                </div>
+                <div>
+                  <label for="reminder-match-mode">Hvordan skal den matches?</label>
+                  <select id="reminder-match-mode" name="match_mode">
+                    <option value="exact">Nøjagtig (anbefalet)</option>
+                    <option value="contains">Titel indeholder</option>
+                  </select>
+                </div>
+              </div>
+              <label for="reminder-text">Hvad skal der stå på væggen?</label>
+              <input id="reminder-text" name="text" type="text" maxlength="200" placeholder="Husk gymnastiktøj" required>
+              <label for="reminder-lead-hours">Hvor mange timer før skal den komme frem?</label>
+              <input id="reminder-lead-hours" name="lead_hours" type="number" min="0" max="168" step="1" value="12">
+              <div class="form-row align-end">
+                <button class="button primary" type="submit">Gem huskelinje</button>
+              </div>
+            </form>
+            <div id="event-reminder-list" class="settings-list"></div>
           </article>
           <article class="panel settings-card wide">
             <div class="panel-heading"><div><p class="eyebrow">iCloud</p><h2>Delte note (Note på iPhone)</h2></div><span class="status-badge" id="notes-status">Ikke konfigureret</span></div>

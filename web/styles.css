@@ -15,6 +15,7 @@
   --accent-soft: rgba(124, 156, 255, 0.15);
   --green: #4fd1a1;
   --yellow: #f5c76b;
+  --yellow-soft: rgba(245, 199, 107, 0.14);
   --red: #ff7e8a;
   --shadow: 0 24px 70px rgba(0, 0, 0, 0.26);
   /* Farver der var hårdkodet i reglerne. De ligger her, så det lyse tema
@@ -71,6 +72,7 @@
   --accent-soft: rgba(51, 80, 159, 0.12);
   --green: #147a52;
   --yellow: #96620a;
+  --yellow-soft: rgba(150, 98, 10, 0.10);
   --red: #b32a35;
   --shadow: 0 24px 70px rgba(22, 42, 88, 0.14);
   --glow-1: #ccdcfb;
@@ -357,6 +359,8 @@ input:hover, textarea:hover, select:hover { border-color: var(--field-line-hover
 .settings-card.wide { grid-column: 1 / -1; }
 .settings-list { display: grid; gap: 8px; }
 .settings-list-item { min-height: 52px; }
+/* En slået fra huskelinje er stadig gemt, men må ikke se aktiv ud. */
+.settings-list-item.is-off { opacity: 0.55; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .source-kind-summary { display: flex; align-items: center; justify-content: space-between; min-height: var(--tap); padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(124, 156, 255, 0.08); }
 .source-kind-summary span { color: var(--muted); font-size: 0.75rem; }
@@ -658,10 +662,20 @@ body.paa-forside .nav-button { min-height: 34px; font-size: 0.76rem; }
 .fodselsdag__dato { margin: clamp(2px, 0.3vw, 8px) 0 0; color: var(--muted); font-size: var(--fs-mellem); font-weight: 700; }
 .fodselsdag__dage { margin: clamp(2px, 0.3vw, 8px) 0 0; color: var(--yellow); font-size: var(--fs-lille); font-weight: 850; letter-spacing: 0.06em; text-transform: uppercase; }
 
+/* Huskelinjer. De ligger under fødselsdagen og er skjult helt, indtil
+   der faktisk er noget at huske, så en tom forside ikke får en tom
+   boks med et "Husk"-overskrift. */
+.forside-hints { display: flex; flex-direction: column; gap: clamp(6px, 0.8vh, 16px); margin-top: clamp(10px, 2vh, 32px); padding-top: clamp(10px, 2vh, 28px); border-top: 2px solid var(--line); }
+.forside-hints[hidden] { display: none; }
+.forside-hint { display: flex; align-items: baseline; gap: 0.35em; margin: 0; padding: clamp(6px, 1vh, 14px) clamp(12px, 1.2vw, 26px); border: 3px solid var(--yellow); border-radius: clamp(14px, 1.4vw, 30px); background: var(--yellow-soft); color: var(--yellow); font-size: var(--fs-mellem); font-weight: 850; line-height: 1.06; letter-spacing: -0.015em; }
+.forside-hint__tekst { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.forside-hint__hvornår { flex: none; color: var(--muted); font-size: var(--fs-lille); font-weight: 750; letter-spacing: 0.02em; white-space: nowrap; }
+
 /* I stående format er der plads til færre timekolonner, og kalenderen
    og fødselsdagen ligger under hinanden. */
 @media (max-aspect-ratio: 1/1) {
   .hourly { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .forside-bottom { grid-template-columns: minmax(0, 1fr); }
   .forside-panel--birthday { flex: 1 1 auto; }
+  .forside-hint { font-size: clamp(24px, 5.5vw, 44px); }
 }

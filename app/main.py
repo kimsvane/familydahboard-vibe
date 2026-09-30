@@ -29,6 +29,8 @@ from .reolink import (
     stream_camera_mjpeg,
 )
 from .schemas import (
+    EventReminderCreate,
+    EventReminderUpdate,
     BirthdayCreate,
     BirthdayUpdate,
     CalendarCreate,
@@ -57,6 +59,7 @@ from .security import (
 from .services import (
     WeatherService,
     events_for_range,
+    active_event_hints,
     get_timezone,
     timezone_is_valid,
     upcoming_birthdays,
@@ -204,6 +207,10 @@ async def lifespan(_: FastAPI):
         task.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
 
+
+# Hvor mange huskelinjer der højst vises på forsideklokken ad gangen.
+# Flere på skærmen endnu ville fylde panelet under fødselsdagen op.
+WALL_HINT_LIMIT = 3
 
 app = FastAPI(
     title="Family Dashboard",
@@ -369,12 +376,29 @@ async def dashboard_summary(
             timezone_name=timezone_name,
             location_name=current_settings.get("location_name") or settings.location_name,
         )
+    # Huskelinjer slås op på hele døgnet og ikke kun den valgte dag, så
+    # en aftale i morgen kan give en påmindelse i aften.
+    hints_window = events_for_range(
+        database, _today(timezone_name), _today(timezone_name) + timedelta(days=2), timezone_name
+    )
+    # Vi viser kun de tre første på væggen, så den ikke bliver fyldt
+    # op. Tallet med sendes med, så indstillingssiden kan fortælle at
+    # noget er holdt tilbage i stedet for at det bare forsvinder.
+    alle_hints = active_event_hints(
+        database.list_event_reminders(),
+        hints_window,
+        datetime.now(get_timezone(timezone_name)),
+        limit=99,
+    )
+    hints = alle_hints[:WALL_HINT_LIMIT]
     return {
         "date": selected_day.isoformat(),
         "generated_at": datetime.now(get_timezone(timezone_name)).isoformat(),
         "settings": public_settings(current_settings),
         "members": database.list_members(),
         "events": events,
+        "event_hints": hints,
+        "event_hints_total": len(alle_hints),
         "birthdays": all_birthdays,
         "frames": database.list_frames(visible_only=True),
         "notes": database.list_notes(),
@@ -597,6 +621,68 @@ async def delete_note(note_id: int) -> dict[str, bool]:
 @app.get("/api/checklist", dependencies=[Depends(require_auth)])
 async def list_checklist() -> dict[str, Any]:
     return {"items": database.list_checklist()}
+
+
+@app.get("/api/event-reminders", dependencies=[Depends(require_auth)])
+async def list_event_reminders() -> dict[str, Any]:
+    """Alle huskelinjer. Det er ikke det samme som iCloud-påmindelser."""
+    return {"event_reminders": database.list_event_reminders()}
+
+
+@app.post("/api/event-reminders", status_code=201, dependencies=[Depends(require_auth)])
+async def create_event_reminder(payload: EventReminderCreate) -> dict[str, Any]:
+    match_value = payload.match_value.strip()
+    text = payload.text.strip()
+    if not match_value:
+        raise HTTPException(status_code=422, detail="match_value må ikke være tom")
+    if not text:
+        raise HTTPException(status_code=422, detail="text må ikke være tom")
+    source_id = payload.source_id
+    if source_id is not None:
+        known = {int(source["id"]) for source in database.list_sources()}
+        if int(source_id) not in known:
+            raise HTTPException(status_code=422, detail="Ukendt kalender")
+    return {
+        "event_reminder": database.create_event_reminder(
+            payload.source_kind,
+            source_id,
+            payload.match_mode,
+            match_value,
+            text,
+            payload.lead_hours,
+        )
+    }
+
+
+@app.patch("/api/event-reminders/{item_id}", dependencies=[Depends(require_auth)])
+async def update_event_reminder(
+    item_id: int, payload: EventReminderUpdate
+) -> dict[str, Any]:
+    if not database.get_event_reminder(item_id):
+        raise HTTPException(status_code=404, detail="Huskelinje ikke fundet")
+    values = payload_values(payload)
+    for key in ("match_value", "text"):
+        if key in values:
+            values[key] = str(values[key]).strip()
+            if not values[key]:
+                raise HTTPException(status_code=422, detail=f"{key} må ikke være tom")
+    # payload_values dropper null, så en eksplicit null på source_id ellers
+    # ikke kunne rydde en regel tilbage til "alle kalendere". Det er præcis
+    # den bevægelse brugeren laver, når en regel var låst til én kalender.
+    if "source_id" in payload.model_fields_set:
+        values["source_id"] = payload.source_id
+    if values.get("source_id") is not None:
+        known = {int(source["id"]) for source in database.list_sources()}
+        if int(values["source_id"]) not in known:
+            raise HTTPException(status_code=422, detail="Ukendt kalender")
+    return {"event_reminder": database.update_event_reminder(item_id, values)}
+
+
+@app.delete("/api/event-reminders/{item_id}", dependencies=[Depends(require_auth)])
+async def delete_event_reminder(item_id: int) -> dict[str, bool]:
+    if not database.delete_event_reminder(item_id):
+        raise HTTPException(status_code=404, detail="Huskelinje ikke fundet")
+    return {"deleted": True}
 
 
 @app.post("/api/checklist", status_code=201, dependencies=[Depends(require_auth)])

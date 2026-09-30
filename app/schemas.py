@@ -94,6 +94,27 @@ class ChecklistCreate(Model):
     due_date: Optional[date] = None
 
 
+class EventReminderCreate(Model):
+    source_kind: Literal["calendar", "school"] = "calendar"
+    source_id: Optional[int] = None
+    match_mode: Literal["exact", "contains"] = "exact"
+    match_value: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=200)
+    # Hvor tidligt huskelinjen må dukke op før aftalen. Timegange uden for
+    # en uge giver ingen mening på en hverdagsvæg.
+    lead_hours: int = Field(default=12, ge=0, le=168)
+
+
+class EventReminderUpdate(Model):
+    source_kind: Optional[Literal["calendar", "school"]] = None
+    source_id: Optional[int] = None
+    match_mode: Optional[Literal["exact", "contains"]] = None
+    match_value: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    text: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    lead_hours: Optional[int] = Field(default=None, ge=0, le=168)
+    enabled: Optional[bool] = None
+
+
 class ChecklistUpdate(Model):
     text: Optional[str] = Field(default=None, min_length=1, max_length=500)
     done: Optional[bool] = None

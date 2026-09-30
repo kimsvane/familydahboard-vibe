@@ -165,6 +165,20 @@ class Database:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS event_reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_kind TEXT NOT NULL DEFAULT 'calendar',
+                    source_id INTEGER,
+                    match_mode TEXT NOT NULL DEFAULT 'exact',
+                    match_value TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    lead_hours INTEGER NOT NULL DEFAULT 12,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS event_reminders_kind_idx
+                    ON event_reminders(source_kind, enabled);
                 CREATE TABLE IF NOT EXISTS cameras (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
@@ -819,12 +833,73 @@ class Database:
                 > 0
             )
 
+    def list_event_reminders(self) -> list[dict[str, Any]]:
+        """Alle huskelinjer, uanset om de er aktive lige nu."""
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM event_reminders ORDER BY enabled DESC, id"
+            ).fetchall()
+        return [self._public(row) for row in rows]
+
+    def create_event_reminder(
+        self,
+        source_kind: str,
+        source_id: Optional[int],
+        match_mode: str,
+        match_value: str,
+        text: str,
+        lead_hours: int,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connection() as connection:
+            cursor = connection.execute(
+                "INSERT INTO event_reminders(source_kind, source_id, match_mode, match_value,"
+                " text, lead_hours, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (source_kind, source_id, match_mode, match_value, text, lead_hours, now, now),
+            )
+            row = connection.execute(
+                "SELECT * FROM event_reminders WHERE id = ?", (cursor.lastrowid,)
+            ).fetchone()
+        return self._public(row)
+
+    def get_event_reminder(self, item_id: int) -> Optional[dict[str, Any]]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM event_reminders WHERE id = ?", (item_id,)
+            ).fetchone()
+        return self._public(row) if row else None
+
+    def update_event_reminder(self, item_id: int, values: dict[str, Any]) -> Optional[dict[str, Any]]:
+        if not values:
+            return self.get_event_reminder(item_id)
+        sets = ", ".join(f"{key} = ?" for key in values)
+        with self.connection() as connection:
+            changed = connection.execute(
+                f"UPDATE event_reminders SET {sets}, updated_at = ? WHERE id = ?",
+                (*values.values(), utc_now(), item_id),
+            ).rowcount
+            row = connection.execute(
+                "SELECT * FROM event_reminders WHERE id = ?", (item_id,)
+            ).fetchone()
+        return self._public(row) if row and changed else None
+
+    def delete_event_reminder(self, item_id: int) -> bool:
+        with self.connection() as connection:
+            return (
+                connection.execute(
+                    "DELETE FROM event_reminders WHERE id = ?", (item_id,)
+                ).rowcount
+                > 0
+            )
+
     @staticmethod
     def _public(row: sqlite3.Row) -> dict[str, Any]:
         item = dict(row)
         for key in ("enabled", "visible", "pinned", "done", "all_day"):
             if key in item:
                 item[key] = bool(item[key])
+        if item.get("source_id") is not None:
+            item["source_id"] = int(item["source_id"])
         if "password" in item:
             item["has_password"] = bool(item["password"])
             item["password"] = ""
