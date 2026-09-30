@@ -182,6 +182,7 @@ class SettingsUpdate(Model):
     notes_imap_note_title: Optional[str] = Field(default=None, max_length=200)
     reolink_poll_seconds: Optional[int] = Field(default=None, ge=2, le=60)
     reolink_close_delay: Optional[int] = Field(default=None, ge=0, le=60)
+    reolink_live_delay: Optional[int] = Field(default=None, ge=0, le=60)
     log_level: Optional[Literal["error", "warning", "info", "debug"]] = None
     today_layout_mode: Optional[Literal["auto", "manual"]] = None
     today_layout: Optional[str] = Field(default=None, max_length=20000)

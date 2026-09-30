@@ -374,7 +374,17 @@ def test_camera_monitor_activity_shape(tmp_path):
     assert activity["active"] == []
     assert activity["recent"] == []
     assert activity["close_delay"] == 0
+    assert activity["live_delay"] == 3
     assert activity["poll_seconds"] == 5.0
+
+
+def test_camera_monitor_live_delay_kan_slaettes_fra(tmp_path):
+    database = Database(tmp_path / "camera-live-delay.db")
+    monitor = CameraMonitor(database)
+    database.update_settings({"reolink_live_delay": "0"})
+    assert monitor.activity()["live_delay"] == 0
+    database.update_settings({"reolink_live_delay": "8"})
+    assert monitor.activity()["live_delay"] == 8
 
 
 def test_html_to_text_and_extract_note():
@@ -1428,3 +1438,54 @@ def test_assets_are_served_with_build_id(tmp_path):
             assert health["build"] == main.BUILD_ID
     finally:
         main.database = old_database
+
+
+def test_camera_monitor_siden_er_foerste_synlige_tidspunkt(tmp_path):
+    # `since` bliver brugt til at genkende den samme detektion, så
+    # poppen ikke bygges om hver gang der polles. Derfor skal det være
+    # tidspunktet for den FØRSTE iagttagelse og ikke den seneste,
+    # ellers får hvert poll et nyt nøgletal.
+    database = Database(tmp_path / "camera-since.db")
+    camera = database.create_camera(
+        "Entré", "http://10.0.0.5/", "admin", "pw", 0, True, True, False, ""
+    )
+    monitor = CameraMonitor(database)
+
+    async def altid_aktiv(_self, _client):
+        return [{"type": "people", "label": "Person"}]
+
+    with patch.object(ReolinkCamera, "get_ai_state", new=altid_aktiv):
+        asyncio.run(monitor.poll())
+        første = monitor._active[camera["id"]]["since"]
+        asyncio.run(monitor.poll())
+        anden = monitor._active[camera["id"]]["since"]
+
+    # Selv om der er gået tid, er det stadig samme hændelse.
+    assert anden == første
+
+
+def test_camera_monitor_genstarter_siden_efter_en_pause(tmp_path):
+    # Når der igen er aktivitet efter en pause, skal det være en NY
+    # hændelse med sin egen tid, ellers ville poppen aldrig genåbne.
+    database = Database(tmp_path / "camera-genstart.db")
+    camera = database.create_camera(
+        "Entré", "http://10.0.0.5/", "admin", "pw", 0, True, True, False, ""
+    )
+    monitor = CameraMonitor(database)
+
+    async def aktiv(_self, _client):
+        return [{"type": "people", "label": "Person"}]
+
+    async def ingen(_self, _client):
+        return []
+
+    with patch.object(ReolinkCamera, "get_ai_state", new=aktiv):
+        asyncio.run(monitor.poll())
+    første = monitor._active[camera["id"]]["since"]
+    with patch.object(ReolinkCamera, "get_ai_state", new=ingen):
+        asyncio.run(monitor.poll())
+    assert not monitor._active
+    with patch.object(ReolinkCamera, "get_ai_state", new=aktiv):
+        asyncio.run(monitor.poll())
+    anden = monitor._active[camera["id"]]["since"]
+    assert anden != første

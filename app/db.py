@@ -42,6 +42,7 @@ DEFAULT_SETTINGS = {
     "notes_imap_last_error": "",
     "reolink_poll_seconds": "5",
     "reolink_close_delay": "0",
+    "reolink_live_delay": "3",
 }
 
 

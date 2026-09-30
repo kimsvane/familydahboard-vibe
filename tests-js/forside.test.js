@@ -12,6 +12,20 @@ const source = fs.readFileSync(path.join(__dirname, "..", "web", "app.js"), "utf
 // som om den hverken har fetch eller serviceWorker, ellers støjer testen.
 let initKaldt = 0;
 const kontekstTimere = [];
+// Timere får rigtige id'er, så clearTimeout kan fjerne præcis den
+// timer, der blev sat, i stedet for at være en tom funktion. Det er
+// nødvendigt for at teste, at en popup-lukning IKKE nulstilles af et
+// senere poll.
+let næsteTimerId = 1;
+function planlægTimer(fn, ms) {
+  const id = næsteTimerId++;
+  kontekstTimere.push({ id, fn, ms });
+  return id;
+}
+function rydTimer(id) {
+  const index = kontekstTimere.findIndex((t) => t.id === id);
+  if (index >= 0) kontekstTimere.splice(index, 1);
+}
 // Struppens cache-stand. Den ligger fast i konteksten, fordi en cache
 // der swappes under en test er svær at holde styr på.
 const cacheNøgler = new Set();
@@ -58,7 +72,8 @@ const context = {
   window: {
     addEventListener() {},
     scrollTo() {},
-    setTimeout: (fn, ms) => { kontekstTimere.push({ fn, ms }); return kontekstTimere.length; },
+    setTimeout: planlægTimer,
+    clearTimeout: rydTimer,
     caches: {
       keys: async () => {
         if (cacheFejl) throw new Error("ingen adgang");
@@ -68,9 +83,9 @@ const context = {
     },
   },
   location: { origin: "http://test", reload() { reloadTalt += 1; } },
-  setTimeout: (fn, ms) => { kontekstTimere.push({ fn, ms }); return kontekstTimere.length; },
+  setTimeout: planlægTimer,
   setInterval() { return { unref() {} }; },
-  clearTimeout() {},
+  clearTimeout: rydTimer,
   clearInterval() {},
   Intl,
   Date,
@@ -86,7 +101,7 @@ vm.runInContext(source, context, { filename: "app.js" });
 
 const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature, themeForNow, clockMinutes,
   renderForsideHints, renderReminderSourceOptions, reminderSourceLabel, reminderMatchLabel,
-  genindlaesAlt } = context;
+  genindlaesAlt, handleDetections } = context;
 
 let bestævrelser = 0;
 // Enkelte tjek er asynkrone, så de skal vente. De køres i rækkefølge og
@@ -397,6 +412,135 @@ tjek("genindlaesAlt virker ogsa naar cachen er lukket", async () => {
   } finally {
     cacheFejl = false;
     kontekstTimere.push(...gemte);
+  }
+});
+
+// Opsætter et kamera i state og en observerbar popup, så popup-logikken
+// kan testes. Gemmer struppene bagefter, så resten af testene er urørt.
+function medEntréKamera(kør) {
+  const gemtQuery = context.document.querySelectorAll;
+  const popup = context.document.querySelector("#detect-popup");
+  const liveBadge = { synlig: false, removeAttribute(navn) { if (navn === "hidden") this.synlig = true; } };
+  const img = { dataset: { detectCam: "1" }, src: "", closest: () => ({ querySelector: () => liveBadge }) };
+  context.document.querySelectorAll = (vælger) => (vælger.includes("data-detect-cam") ? [img] : []);
+  popup.innerHTML = "";
+  popup.hidden = true;
+  // Hvert tjek skal starte forfra. detectKey overlever ellers fra
+  // forrige tjek, og så går poppen aldrig ind i den nye hændelse.
+  vm.runInContext("state.detectKey = null; stopDetectTimers();", context);
+  vm.runInContext('state.cameras = [{ id: 1, name: "Entré", live_stream_url: "rtsp://bruger:kod@10.0.0.5:554/h264Preview_01_main" }]', context);
+  try {
+    return kør({ popup, img, liveBadge });
+  } finally {
+    context.document.querySelectorAll = gemtQuery;
+  }
+}
+
+const aktivitet = (ekstra = {}) => ({
+  active: [{ id: 1, name: "Entré", types: [{ type: "people", label: "Person" }], since: "2026-09-30T08:00:00+00:00" }],
+  recent: [],
+  close_delay: 0,
+  live_delay: 3,
+  poll_seconds: 5,
+  ...ekstra,
+});
+
+tjek("popup viser stillbillede med det samme og tænder live-feed først efter forsinkelsen", () => {
+  medEntréKamera(({ popup, img, liveBadge }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet());
+    assert.equal(popup.hidden, false, "popup skal være synlig med det samme");
+    assert.ok(popup.innerHTML.includes("/api/cameras/1/snapshot"), "skal starte med et stillbillede");
+    assert.ok(!popup.innerHTML.includes("/stream?"), "må ikke starte den tunge stream med det samme");
+    assert.equal(liveBadge.synlig, false, "LIVE-badgen må ikke lyse endnu");
+    const planlagt = kontekstTimere.splice(0, kontekstTimere.length);
+    assert.equal(planlagt.length, 1, "der skal være præcis én forsinkelse");
+    assert.equal(planlagt[0].ms, 3000, "forsinkelsen skal følge live_delay");
+    planlagt[0].fn();
+    assert.ok(img.src.includes("/api/cameras/1/stream?max_seconds=300"), "skal skifte til live-stream");
+    assert.equal(liveBadge.synlig, true, "LIVE-badgen skal tænde når streamen kører");
+  });
+});
+
+tjek("live_delay 0 tænder streamen uden at vente", () => {
+  medEntréKamera(({ img }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet({ live_delay: 0 }));
+    assert.ok(img.src.includes("/stream?"), "skal starte med det samme når forsinkelsen er 0");
+  });
+});
+
+tjek("popup bygges ikke om ved hvert poll, så live-streamen overlever", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet());
+    const første = popup.innerHTML;
+    // Samme hændelse polled igen. Før blev innerHTML sat på ny hver
+    // gang, hvilket ødelagde <img>-elementet og dræbte live-streamen.
+    handleDetections(aktivitet());
+    handleDetections(aktivitet());
+    assert.equal(popup.innerHTML, første, "poppen må ikke bygges om under den samme hændelse");
+  });
+});
+
+tjek("popup lukker sig selv, og et poll undervejs ødelægger ikke nedlukningen", () => {
+  medEntréKamera(({ popup, img }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet({ close_delay: 12 }));
+    const lukning = kontekstTimere.find((t) => t.ms === 12000);
+    assert.ok(lukning, "nedlukning skal planlægges én gang");
+    // Et poll imellem må ikke fjerne nedlukningen. Før blev timeren
+    // nulstillet ved hvert poll, så poppen aldrig lukkede sig selv.
+    handleDetections(aktivitet({ close_delay: 12 }));
+    assert.ok(kontekstTimere.some((t) => t.id === lukning.id), "nedlukningen skal stadig stå");
+    assert.equal(popup.hidden, false, "popup skal stadig være synlig inden nedlukningen");
+    lukning.fn();
+    assert.equal(popup.hidden, true, "popup skal lukke sig selv");
+    assert.equal(popup.innerHTML, "", "billederne skal ryddes, så ffmpeg stopper");
+    assert.equal(kontekstTimere.some((t) => t.ms === 12000), false, "der må ikke stå en lukning tilbage");
+  });
+});
+
+tjek("ny hændelse efter lukning åbner poppen igen", () => {
+  medEntréKamera(({ popup, img }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet({ close_delay: 12 }));
+    kontekstTimere.find((t) => t.ms === 12000).fn();
+    assert.equal(popup.hidden, true);
+    // Ny hændelse = ny since. Skal starte forfra med et stillbillede.
+    handleDetections(aktivitet({ live_delay: 3, close_delay: 12, active: [
+      { id: 1, name: "Entré", types: [{ type: "people", label: "Person" }], since: "2026-09-30T09:00:00+00:00" },
+    ] }));
+    assert.equal(popup.hidden, false, "den nye hændelse skal åbne poppen igen");
+    assert.ok(popup.innerHTML.includes("/snapshot?"), "den nye hændelse skal starte med stillbillede");
+    assert.equal(img.src, "", "det nye billede må ikke arve den gamle stream");
+  });
+});
+
+tjek("poppen forsvinder når aktiviteten stopper", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet());
+    handleDetections({ ...aktivitet(), active: [] });
+    assert.equal(popup.hidden, true, "ingen aktivitet skal lukke poppen");
+    assert.equal(popup.innerHTML, "", "billederne skal ryddes, så ffmpeg stopper");
+    assert.equal(kontekstTimere.length, 0, "der må ikke stå timere tilbage");
+  });
+});
+
+tjek("et kamera uden RTSP-url får intet live-feed", () => {
+  const gemtQuery = context.document.querySelectorAll;
+  const popup = context.document.querySelector("#detect-popup");
+  context.document.querySelectorAll = () => [];
+  popup.innerHTML = "";
+  vm.runInContext('state.cameras = [{ id: 1, name: "Entré", live_stream_url: "" }]', context);
+  try {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet());
+    assert.ok(popup.innerHTML.includes("/snapshot"), "skal bruge stillbilledet");
+    assert.ok(!popup.innerHTML.includes("data-detect-live"), "LIVE-badgen skal ikke vises uden stream");
+  } finally {
+    context.document.querySelectorAll = gemtQuery;
   }
 });
 

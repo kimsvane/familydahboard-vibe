@@ -322,13 +322,20 @@ class CameraMonitor:
         self._previous[camera_id] = types
 
         if types:
+            tidligere = self._active.get(camera_id) or {}
             self._active[camera_id] = {
                 "id": camera_id,
                 "name": camera_row.get("name") or "Kamera",
                 "types": [
                     {"type": item["type"], "label": item["label"]} for item in active
                 ],
-                "since": now,
+                # since er det FØRSTE tidspunkt denne hændelse blev set,
+                # ikke det seneste. Poppen bruger det til at genkende den
+                # samme detektion, så hvis det flyttede sig ved hvert poll,
+                # blev hele poppen bygget om hvert femte sekund. Så døde
+                # live-streamen, fordi billedet blev ødelagt og lavet på
+                # ny, mens ffmpeg knap nåede at starte.
+                "since": tidligere.get("since") or now,
             }
         else:
             self._active.pop(camera_id, None)
@@ -338,10 +345,15 @@ class CameraMonitor:
             close_delay = int(self.database.get_setting("reolink_close_delay", "0") or 0)
         except ValueError:
             close_delay = 0
+        try:
+            live_delay = int(self.database.get_setting("reolink_live_delay", "3") or 0)
+        except ValueError:
+            live_delay = 3
         return {
             "active": list(self._active.values()),
             "recent": self.database.recent_camera_activity(limit=15),
             "close_delay": max(0, close_delay),
+            "live_delay": max(0, live_delay),
             "poll_seconds": self.poll_interval(),
         }
 

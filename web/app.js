@@ -31,7 +31,8 @@ const state = {
   reminderLists: [],
   icloudNote: null,
   cameraTimer: null,
-  detectTimer: null,
+  detectCloseTimer: null,
+  detectLiveTimer: null,
   layout: null,
   layoutMode: "auto",
   todayColumns: "4",
@@ -167,8 +168,7 @@ function showLogin() {
   state.cameraTimer = null;
   if (state.themeTimer) window.clearInterval(state.themeTimer);
   state.themeTimer = null;
-  if (state.detectTimer) window.clearTimeout(state.detectTimer);
-  state.detectTimer = null;
+  stopDetectTimers();
   appShell.hidden = true;
   loginScreen.hidden = false;
   window.setTimeout(() => $("#login-password")?.focus(), 0);
@@ -1083,6 +1083,7 @@ function renderSettings(summary) {
   const reolinkForm = $("#reolink-form");
   reolinkForm.elements.reolink_poll_seconds.value = settings.reolink_poll_seconds || 5;
   reolinkForm.elements.reolink_close_delay.value = settings.reolink_close_delay ?? 0;
+  reolinkForm.elements.reolink_live_delay.value = settings.reolink_live_delay ?? 3;
   const loggingForm = $("#logging-form");
   if (loggingForm) loggingForm.elements.log_level.value = settings.log_level || "warning";
 }
@@ -1265,31 +1266,82 @@ function renderActivity(activity) {
   }).join("");
 }
 
+function stopDetectTimers() {
+  if (state.detectCloseTimer) window.clearTimeout(state.detectCloseTimer);
+  if (state.detectLiveTimer) window.clearTimeout(state.detectLiveTimer);
+  state.detectCloseTimer = null;
+  state.detectLiveTimer = null;
+}
+
+// Rydder også billederne, så en igangværende ffmpeg-transkoding dør med
+// poppen i stedet for at fortsætte i baggrunden til max_seconds er ovløbet.
+function closeDetectPopup() {
+  const popup = $("#detect-popup");
+  popup.hidden = true;
+  popup.innerHTML = "";
+  state.detectKey = null;
+}
+
+function startLiveInPopup(key) {
+  // Kun hvis det stadig er den samme hændelse. Ellers ville vi starte
+  // en stream i en popup, der allerede er lukket.
+  if (state.detectKey !== key) return;
+  document.querySelectorAll("#detect-popup img[data-detect-cam]").forEach((img) => {
+    const id = img.dataset.detectCam;
+    const configured = state.cameras.find((item) => String(item.id) === String(id));
+    if (!configured || !(configured.live_stream_url || "").trim()) return;
+    img.src = `/api/cameras/${id}/stream?max_seconds=300&t=${Date.now()}`;
+    img.closest(".detect-card")?.querySelector("[data-detect-live]")?.removeAttribute("hidden");
+  });
+}
+
 function handleDetections(activity) {
-  if (state.detectTimer) window.clearTimeout(state.detectTimer);
-  state.detectTimer = null;
   const popup = $("#detect-popup");
   const active = activity.active || [];
   if (!active.length) {
-    popup.hidden = true;
-    popup.innerHTML = "";
-    state.detectKey = null;
+    stopDetectTimers();
+    closeDetectPopup();
     return;
   }
+
+  // `since` er det første tidspunkt hændelsen blev set, så nøglen er
+  // stabil gennem hele hændelsen. Det er grunden til, at poppen ikke
+  // længere bygges om hvert femte sekund, hvilket dræbte live-streamen.
   const key = active.map((camera) => `${camera.id}:${camera.since}`).join("|");
-  if (state.detectKey !== key) {
+  const isNew = state.detectKey !== key;
+  if (isNew) {
+    stopDetectTimers();
     state.detectKey = key;
     popup.innerHTML = active.map((camera) => {
       const types = (camera.types || []).map((item) => detectLabel(item.label || item.type)).join(" og ") || "Aktivitet";
       const configured = state.cameras.find((item) => String(item.id) === String(camera.id));
-      const live = (configured?.live_stream_url || "").trim();
-      const src = live ? `/api/cameras/${camera.id}/stream?max_seconds=300&t=${Date.now()}` : `/api/cameras/${camera.id}/snapshot?t=${Date.now()}`;
-      return `<div class="detect-card"><div class="detect-head"><h2>${escapeHtml(camera.name)}</h2><span class="detect-types">${escapeHtml(types)}</span></div>${live ? `<span class="camera-live detect-live">LIVE</span>` : ""}<img src="${src}" alt="Kamerabillede"><div class="detect-foot"><span>Detekteret ${escapeHtml(formatTime(camera.since))}</span><span>Lukker automatisk</span></div></div>`;
+      const canStream = Boolean((configured?.live_stream_url || "").trim());
+      // Start med et stillbillede. Det er billigt og kommer med det samme,
+      // så man ved med det samme at der er noget ved døren. Den tunge
+      // RTSP-stream tænder først efter live_delay sekunder.
+      const src = `/api/cameras/${camera.id}/snapshot?t=${Date.now()}`;
+      return `<div class="detect-card"><div class="detect-head"><h2>${escapeHtml(camera.name)}</h2><span class="detect-types">${escapeHtml(types)}</span></div>${canStream ? `<span class="camera-live detect-live" data-detect-live hidden>LIVE</span>` : ""}<img data-detect-cam="${escapeHtml(camera.id)}" src="${src}" alt="Kamerabillede"><div class="detect-foot"><span>Detekteret ${escapeHtml(formatTime(camera.since))}</span><span>Lukker automatisk</span></div></div>`;
     }).join("");
+
+    const liveDelay = Math.max(0, Number(activity.live_delay ?? 0) || 0);
+    if (liveDelay > 0) {
+      state.detectLiveTimer = window.setTimeout(() => startLiveInPopup(key), liveDelay * 1000);
+    } else {
+      startLiveInPopup(key);
+    }
+
+    // Sættes én gang pr. hændelse. Før blev den nulstillet ved hvert
+    // poll, så poppen aldrig nåede at lukke sig selv.
+    const closeDelay = Math.max(0, Number(activity.close_delay || 0));
+    if (closeDelay > 0) {
+      state.detectCloseTimer = window.setTimeout(() => {
+        if (state.detectKey !== key) return;
+        stopDetectTimers();
+        closeDetectPopup();
+      }, closeDelay * 1000);
+    }
   }
   popup.hidden = false;
-  const closeDelay = Number(activity.close_delay || 0);
-  if (closeDelay > 0) state.detectTimer = window.setTimeout(() => { const root = $("#detect-popup"); root.hidden = true; }, closeDelay * 1000);
 }
 
 async function pollCameras() {
@@ -1826,6 +1878,7 @@ function bindEvents() {
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
     values.reolink_poll_seconds = Number(values.reolink_poll_seconds) || undefined;
     values.reolink_close_delay = Number(values.reolink_close_delay) || 0;
+    values.reolink_live_delay = Number(values.reolink_live_delay) || 0;
     try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); await loadCameras(); showToast("Kamera-indstillinger gemt"); } catch (error) { showToast(error.message, true); }
   });
   $("#copy-url-button").addEventListener("click", async () => { await navigator.clipboard?.writeText(window.location.origin); showToast("Adresse kopieret"); });
