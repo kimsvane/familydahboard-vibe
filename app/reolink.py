@@ -37,6 +37,16 @@ class ReolinkError(RuntimeError):
     pass
 
 
+class ReolinkProtocolError(ReolinkError):
+    """Kameraet forstod ikke anmodningen, fordi det taler en anden
+    protokol end appen.
+
+    Det er ikke et forkert password. Ældre Reolink-firmware afviser
+    login-kroppen med rspCode -4 og uden auth_warning_info, altså uden
+    at tælle mod låsningen. Derfor må vi prøve en anden metode.
+    """
+
+
 def is_streaming_url(value: str) -> bool:
     return str(value or "").strip().lower().startswith(
         ("rtsp://", "rtsps://", "rtmp://")
@@ -107,6 +117,103 @@ _REOLINK_ERROR_CODES = {
     25: "konto blokeret",
 }
 
+#: Reolink-fejl, der betyder "jeg forstod ikke din login", altså at
+#: kameraet bruger en ældre autentificeringsmetode frem for den
+#: JSON-login, appen sender. rspCode -4 er "param error".
+_PROTOCOL_ERRORS = (-4, -6)
+
+
+def _md5(value: str) -> str:
+    return hashlib.md5(value.encode("utf-8")).hexdigest()
+
+
+def parse_digest_challenge(header: str) -> Optional[dict[str, str]]:
+    """Læs en WWW-Authenticate: Digest-header.
+
+    Ældre Reolink-firmware kræver HTTP Digest Authentication, som
+    webinterfacet svarer på. Uden den afviser kameraet login med
+    "param error", som er protokol-inkompatibilitet og ikke et
+    forkert password.
+
+    Værdier kan selv være kommaseparerede (qop="auth,auth-int"), så
+    vi kan ikke bare splitte på kommaer. Vi går tegn for tegn og
+    holder øje med citater.
+    """
+    if not header or "digest" not in header.lower():
+        return None
+    _, _, rest = header.partition(" ")
+    felter: dict[str, str] = {}
+    i = 0
+    segment_start = 0
+    in_quote = False
+    while i < len(rest):
+        tegn = rest[i]
+        if tegn == '"':
+            in_quote = not in_quote
+        elif tegn == "," and not in_quote:
+            # Nyt felt begynder. Gem det vi netop så.
+            navn, _, vaerdi = rest[segment_start:i].partition("=")
+            if navn.strip():
+                felter[navn.strip().lower()] = vaerdi.strip().strip('"')
+            segment_start = i + 1
+        i += 1
+    navn, _, vaerdi = rest[segment_start:].partition("=")
+    if navn.strip():
+        felter[navn.strip().lower()] = vaerdi.strip().strip('"')
+    if not felter.get("nonce"):
+        return None
+    return felter
+
+
+def build_digest_response(
+    challenge: dict[str, str],
+    username: str,
+    password: str,
+    method: str,
+    uri: str,
+    cnonce: str,
+    nc: str = "00000001",
+) -> str:
+    """Beregn et digest-svar (RFC 7616) til en udfordring fra kameraet."""
+    realm = challenge.get("realm", "")
+    nonce = challenge["nonce"]
+    qop = challenge.get("qop", "")
+    # qop kommer nogle gange som "auth,auth-int". Vi bruger altid auth.
+    qop_valdi = "auth" if "auth" in [v.strip() for v in qop.split(",")] else ""
+    ha1 = _md5(f"{username}:{realm}:{password}")
+    ha2 = _md5(f"{method}:{uri}")
+    if qop_valdi:
+        return _md5(f"{ha1}:{nonce}:{nc}:{cnonce}:{qop_valdi}:{ha2}")
+    return _md5(f"{ha1}:{nonce}:{ha2}")
+
+
+def build_digest_header(
+    challenge: dict[str, str],
+    username: str,
+    password: str,
+    method: str,
+    uri: str,
+) -> str:
+    """Byg en komplet Authorization: Digest-header."""
+    cnonce = _md5(f"{username}:{challenge['nonce']}:{time.time()}")
+    nc = "00000001"
+    svar = build_digest_response(challenge, username, password, method, uri, cnonce, nc)
+    dele = [
+        f'username="{username}"',
+        f'realm="{challenge.get("realm", "")}"',
+        f'nonce="{challenge["nonce"]}"',
+        f'uri="{uri}"',
+        f'response="{svar}"',
+    ]
+    if challenge.get("algorithm"):
+        dele.append(f'algorithm="{challenge["algorithm"]}"')
+    qop = challenge.get("qop", "")
+    if "auth" in [v.strip() for v in qop.split(",")]:
+        dele.append("qop=auth")
+        dele.append(f"nc={nc}")
+        dele.append(f'cnonce="{cnonce}"')
+    return "Digest " + ", ".join(dele)
+
 
 def normalize_host(host: str) -> str:
     value = host.strip().rstrip("/")
@@ -137,14 +244,54 @@ class ReolinkCamera:
         self.timeout = timeout
         self._token: Optional[str] = None
         self._token_at = 0.0
+        # Gemmer en eventuel Digest-udfordring, så den kun forhandles
+        # én gang pr. kamera i stedet for ved hvert kald.
+        self._digest_challenge: Optional[dict[str, str]] = None
+        # Hvilket login-format der virkede sidst, så vi prøver det
+        # først næste gang i stedet for at lede fra bunden hver gang.
+        self._login_format: Optional[int] = None
 
-    async def _post(self, client: httpx.AsyncClient, command: str, payload: list[Any], token: bool) -> httpx.Response:
+    async def _post(
+        self,
+        client: httpx.AsyncClient,
+        command: str,
+        payload: list[Any],
+        token: bool,
+        allow_digest: bool = True,
+    ) -> httpx.Response:
         token_part = f"&token={self._token}" if token and self._token else "&token=null"
-        url = f"{self.base_url}/cgi-bin/api.cgi?cmd={command}{token_part}"
+        uri = f"/cgi-bin/api.cgi?cmd={command}{token_part}"
+        url = f"{self.base_url}{uri}"
+        headers: dict[str, str] = {}
+        # Et kamera på gammel firmware kræver Digest. Sender vi ikke
+        # Authorization, svarer det "param error" uden at fortælle hvorfor.
+        # Når vi engang har modtaget en udfordring, svarer vi på den ved
+        # hvert kald, så vi ikke skal genforhandle hver gang.
+        if self._digest_challenge and self.username and self.password:
+            headers["Authorization"] = build_digest_header(
+                self._digest_challenge, self.username, self.password, "POST", uri
+            )
         try:
-            response = await client.post(url, json=payload, timeout=self.timeout)
+            response = await client.post(url, json=payload, headers=headers, timeout=self.timeout)
         except httpx.HTTPError as exc:
             raise ReolinkError(f"Kameraet svarede ikke ({exc.__class__.__name__})") from exc
+        # Et 401 med en udfordring er ikke en fejl endnu, men en
+        # invitation: vi svarer med digest på næste forsøg. Vi gør
+        # det højst én gang, ellers kan et kamera, der fortsætter
+        # med at svare 401, få os til at køre i sløjfe.
+        if response.status_code == 401:
+            udfordring = parse_digest_challenge(response.headers.get("www-authenticate", ""))
+            if udfordring and self.username and self.password and allow_digest:
+                self._digest_challenge = udfordring
+                logger.debug(
+                    "Reolink %s kræver HTTP Digest på %s; svarer med udfordringen",
+                    command,
+                    self.base_url,
+                )
+                return await self._post(client, command, payload, token, allow_digest=False)
+            raise ReolinkError(
+                "Kameraet kræver godkendelse (HTTP 401) – kontrollér brugernavn/adgangskode"
+            )
         if response.status_code != 200:
             raise ReolinkError(f"Kameraet returnerede HTTP {response.status_code}")
         try:
@@ -164,11 +311,14 @@ class ReolinkCamera:
             meaning = _REOLINK_ERROR_CODES.get(
                 int(code), "ukendt fejl"
             )
+            fejl = body[0].get("error") or {}
+            rsp_code = fejl.get("rspCode")
             logger.debug(
-                "Reolink %s på %s -> code=%s; rå svar: %r",
+                "Reolink %s på %s -> code=%s rspCode=%s; rå svar: %r",
                 command,
                 self.base_url,
                 code,
+                rsp_code,
                 body[0],
             )
             if code == 1 and not self.password:
@@ -176,8 +326,29 @@ class ReolinkCamera:
                     "Kameraet afviste login (code=1) – intet password er gemt for "
                     "kameraet. Indtast adgangskoden under Kameraer."
                 )
+            # "param error" og "please login first" betyder, at kameraet
+            # ikke forstod formatet. Det er en protokolforskel, ikke et
+            # dårligt password, så kalderen skal prøve en anden metode.
+            # auth_warning_info betyder derimod at kameraet regner
+            # credentials som forkerte, og da må vi ikke prøve igen.
+            if rsp_code in _PROTOCOL_ERRORS and "auth_warning_info" not in fejl:
+                raise ReolinkProtocolError(
+                    f"Kameraet svarer med {fejl.get('detail') or 'ukendt protokolfejl'} "
+                    f"(rspCode={rsp_code}) på {command}"
+                )
+            if "auth_warning_info" in fejl:
+                # Forsøg mod en lås-tæller. Vi giver op i stedet for at
+                # brænde flere forsøg af, så brugeren kan nulstille den.
+                raise ReolinkError(
+                    "Kameraet afviste brugernavn/adgangskode. Hvis du for nylig har "
+                    "ændret koden, kan kameraet være låst i et stykke tid – nulstil "
+                    "forsøgstælleren i Reolinks egen webinterface."
+                )
             raise ReolinkError(f"Kameraet afviste forespørgslen (code={code} – {meaning})")
         return body
+
+    async def _login_body(self, client: httpx.AsyncClient, payload: list[Any]) -> httpx.Response:
+        return await self._post(client, "Login", payload, token=False)
 
     async def _ensure_token(self, client: httpx.AsyncClient) -> str:
         if self._token and time.monotonic() - self._token_at < TOKEN_REFRESH_SECONDS:
@@ -188,10 +359,13 @@ class ReolinkCamera:
                 "under Kameraer, ellers afviser Reolink login (code=1)"
             )
         digest = hashlib.md5(self.password.encode("utf-8")).hexdigest()
-        body = await self._post(
-            client,
-            "Login",
-            [
+        # Rækkefølgen af login-formater. Hvert kamera får kun prøvet
+        # ét omgangen, og resultatet huskes, så vi ikke bombarderer
+        # kameraet med forkerte protokoller hvert femte sekund.
+        #  0 = den moderne, som nyere Reolink bruger
+        #  1 = webinterfacets format med action-feltet (ældre firmware)
+        formater = [
+            lambda: [
                 {
                     "cmd": "Login",
                     "param": {
@@ -200,16 +374,49 @@ class ReolinkCamera:
                     },
                 }
             ],
-            token=False,
-        )
-        value = body[0].get("value") or {}
-        token_wrapper = value.get("Token") or {}
-        token = token_wrapper.get("name")
-        if not token:
+            lambda: [
+                {
+                    "cmd": "Login",
+                    "action": 0,
+                    "param": {
+                        "User": {"userName": self.username, "password": digest},
+                        "token": {"name": "null"},
+                    },
+                }
+            ],
+        ]
+        valgte = self._login_format if self._login_format is not None else 0
+        # Vi prøver den valgte metode først, og derefter de andre, men kun
+        # efter en protokolfejl. En afvist adgangskode afbryder med det samme.
+        rækkefølge = [valgte] + [i for i in range(len(formater)) if i != valgte]
+        sidste_fejl: Optional[ReolinkError] = None
+        for indeks in rækkefølge:
+            try:
+                body = await self._login_body(client, formater[indeks]())
+            except ReolinkProtocolError as fejl:
+                sidste_fejl = fejl
+                logger.debug(
+                    "Reolink login-format %d på %s -> protokolfejl: %s",
+                    indeks,
+                    self.base_url,
+                    fejl,
+                )
+                continue
+            value = body[0].get("value") or {}
+            token_wrapper = value.get("Token") or {}
+            token = token_wrapper.get("name")
+            if token:
+                self._login_format = indeks
+                self._token = str(token)
+                self._token_at = time.monotonic()
+                logger.info(
+                    "Reolink login på %s lykkedes med format %d", self.base_url, indeks
+                )
+                return self._token
             raise ReolinkError("Login mislykkedes – kontrollér brugernavn/adgangskode")
-        self._token = str(token)
-        self._token_at = time.monotonic()
-        return self._token
+        # Alle formater er prøvet. Hvis intet virkede, er det næsten
+        # sikkert credentials, så vi skal ikke blive ved med at prøve.
+        raise sidste_fejl or ReolinkError("Login mislykkedes – kontrollér brugernavn/adgangskode")
 
     async def get_ai_state(self, client: httpx.AsyncClient) -> list[dict[str, Any]]:
         await self._ensure_token(client)
