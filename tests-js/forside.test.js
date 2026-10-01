@@ -103,7 +103,7 @@ vm.runInContext(source, context, { filename: "app.js" });
 
 const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature, themeForNow, clockMinutes,
   renderForsideHints, renderReminderSourceOptions, reminderSourceLabel, reminderMatchLabel,
-  genindlaesAlt, handleDetections, pollCameras } = context;
+  genindlaesAlt, handleDetections, pollCameras, renderForsideBirthday } = context;
 
 let bestævrelser = 0;
 // Enkelte tjek er asynkrone, så de skal vente. De køres i rækkefølge og
@@ -576,6 +576,39 @@ tjek(" ét fejlslag dræber ikke overvågningen, poppen kommer tilbage", async (
   } finally {
     context.api = gemtApi;
     context.fetch = gemtFetch;
+  }
+});
+
+tjek("foedselsdagsnavnet faar et dansk flag foran", () => {
+  const m = { innerHTML: "" };
+  const gemt = context.document.querySelector;
+  context.document.querySelector = (vælger) => (vælger === "#forside-birthday" ? m : gemt(vælger));
+  try {
+    renderForsideBirthday([{ name: "Emma", days_until: 3, age: 40, next_occurrence: "2026-11-02" }]);
+    // Flaget skal komme foer navnet, og navnet skal escapes.
+    const flag = m.innerHTML.indexOf("fodselsdag__flag");
+    const navn = m.innerHTML.indexOf("Emma");
+    assert.ok(flag >= 0, "der skal være et flag");
+    assert.ok(flag < navn, "flaget skal stå foran navnet");
+    assert.ok(m.innerHTML.includes("fodselsdag__navn-tekst"), "navnet skal have sin egen boks, så flaget kan stå i flex");
+    // Det er et dekorativt flag, ikke indhold, så skærmlæseren skal springe over.
+    assert.ok(m.innerHTML.includes('aria-hidden="true"'), "flaget skal være aria-hidden");
+    assert.ok(m.innerHTML.includes('class="fodselsdag__flag"'), "flaget skal have sin egen klasse");
+  } finally {
+    context.document.querySelector = gemt;
+  }
+});
+
+tjek("et fodselsdagsnavn med HTML escapes stadig faar flag", () => {
+  const m = { innerHTML: "" };
+  const gemt = context.document.querySelector;
+  context.document.querySelector = (vælger) => (vælger === "#forside-birthday" ? m : gemt(vælger));
+  try {
+    renderForsideBirthday([{ name: "<script>x</script>", days_until: 1, age: 5, next_occurrence: "2026-01-01" }]);
+    assert.ok(m.innerHTML.includes("fodselsdag__flag"), "flaget skal stadig vises");
+    assert.ok(!m.innerHTML.includes("<script>"), "navnet skal escapes");
+  } finally {
+    context.document.querySelector = gemt;
   }
 });
 

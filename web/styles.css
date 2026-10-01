@@ -417,7 +417,10 @@ input:hover, textarea:hover, select:hover { border-color: var(--field-line-hover
 .detect-card .detect-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 18px; background: linear-gradient(135deg, rgba(164, 52, 69, 0.55), rgba(92, 124, 250, 0.25)); }
 .detect-card h2 { margin: 0; font-size: 1.05rem; }
 .detect-card .detect-types { color: #ffd9dd; font-size: 0.82rem; font-weight: 800; }
-.detect-card img { display: block; width: 100%; max-height: 46vh; object-fit: cover; background: #05080f; }
+/* 16:9 og object-fit: contain, saa et 1920x1080-billede vises i hele
+   sin udstrækning. Før blev det beskaaret af cover, hvilket skar
+   hovedet af en person, der kom tættere paa kameraet. */
+.detect-card img { display: block; width: 100%; max-height: 46vh; aspect-ratio: 16 / 9; object-fit: contain; background: #05080f; }
 .detect-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 18px; color: var(--muted); font-size: 0.75rem; }
 
 .icloud-note-body { white-space: pre-wrap; line-height: 1.55; }
@@ -665,7 +668,17 @@ body.paa-forside .nav-button { min-height: 34px; font-size: 0.76rem; }
 .dagslinje__tag { padding: 2px 8px; border-radius: 999px; color: var(--green); background: var(--tag-bg); font-size: var(--fs-lille); font-weight: 850; text-transform: uppercase; }
 
 .forside-birthday { display: flex; flex-direction: column; justify-content: center; min-height: 0; }
-.fodselsdag__navn { margin: 0; overflow: hidden; font-size: var(--fs-kæmpe); font-weight: 850; line-height: 0.98; letter-spacing: -0.045em; text-overflow: ellipsis; }
+/* Navnet er stadig fedt, men i samme stoerrelse som kalenderteksten
+   (--fs-mellem). Det er personen, man skal kunne laese paa tvaers af
+   rummet, men den behoever ikke fylde hele hoejden. */
+.fodselsdag__navn { display: flex; align-items: center; gap: 0.24em; margin: 0; overflow: hidden; font-size: var(--fs-mellem); font-weight: 850; line-height: 1.08; letter-spacing: -0.015em; }
+.fodselsdag__navn-tekst { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Dannebrog tegnet i CSS. Bredde:hoejde er 4:3, og de hvide bjaelker
+   ligger omtrent som paa den rigtige fane. */
+.fodselsdag__flag { position: relative; flex: none; width: 1.15em; height: 0.86em; border-radius: 2px; background: #c8102e; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2); }
+.fodselsdag__flag::before, .fodselsdag__flag::after { position: absolute; background: #fff; content: ""; }
+.fodselsdag__flag::before { top: 50%; left: 0; width: 100%; height: 14%; transform: translateY(-50%); }
+.fodselsdag__flag::after { top: 0; bottom: 0; left: 25%; width: 25%; }
 .fodselsdag__dato { margin: clamp(2px, 0.3vw, 8px) 0 0; color: var(--muted); font-size: var(--fs-mellem); font-weight: 700; }
 .fodselsdag__dage { margin: clamp(2px, 0.3vw, 8px) 0 0; color: var(--yellow); font-size: var(--fs-lille); font-weight: 850; letter-spacing: 0.06em; text-transform: uppercase; }
 

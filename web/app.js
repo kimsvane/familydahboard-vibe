@@ -449,8 +449,12 @@ function renderForsideBirthday(birthdays) {
     return;
   }
   const days = next.days_until === 0 ? "I dag" : next.days_until === 1 ? "I morgen" : `om ${next.days_until} dage`;
+  // Flaget tegnes i CSS frem for at være et emoji. Kiosken kører
+  // Chromium på Linux, hvor 🇩🇰 ofte vises som bogstaverne "DK" i en
+  // firkant i stedet for Dannebrog. Et dansk flag skal se ens ud
+  // overalt, så det er lavet i stedet for at være et tegn.
   target.innerHTML = `
-    <p class="fodselsdag__navn">${escapeHtml(next.name)}</p>
+    <p class="fodselsdag__navn"><span class="fodselsdag__flag" aria-hidden="true"></span><span class="fodselsdag__navn-tekst">${escapeHtml(next.name)}</span></p>
     <p class="fodselsdag__dato">${escapeHtml(formatDate(next.next_occurrence, { day: "numeric", month: "long" }))} · ${next.age} år</p>
     <p class="fodselsdag__dage">${escapeHtml(days)}</p>`;
 }
