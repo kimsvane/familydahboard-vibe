@@ -13,6 +13,7 @@ import json
 
 import httpx
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from app.reolink import (
     ReolinkCamera,
@@ -317,3 +318,90 @@ def test_tomt_snapshot_giver_klar_fejl() -> None:
     with pytest.raises(ReolinkError) as greb:
         snap(_token_kamera(), httpx.MockTransport(handler))
     assert "intet snapshot" in str(greb.value).lower()
+
+
+# ---------- AI-state i to svarformer ----------
+
+# Det præcise svar fra 192.168.1.219, kopieret uændret. Bemærk at
+# der IKKE findes et data.aiState-felt, hvilket var grunden til at
+# appen så en tom gade.
+AELDE_AI_SVAR = {
+    "channel": 0,
+    "dog_cat": {"alarm_state": 0, "support": 1},
+    "face": {"alarm_state": 0, "support": 0},
+    "people": {"alarm_state": 0, "support": 1},
+    "vehicle": {"alarm_state": 0, "support": 1},
+}
+
+
+def ai_state(kamera: ReolinkCamera, svar: dict) -> list[dict]:
+    """Kør get_ai_state med et fast svar, der ligner det rigtige."""
+
+    async def fake_post(_self, _client, command, payload, token):
+        assert command == "GetAiState"
+        return [{"code": 0, "value": svar}]
+
+    async def koer() -> list[dict]:
+        with patch.object(ReolinkCamera, "_post", new=fake_post), patch.object(
+            ReolinkCamera, "_ensure_token", new=AsyncMock(return_value="tok")
+        ):
+            return await kamera.get_ai_state(None)
+
+    return asyncio.run(koer())
+
+
+def test_aeldre_form_uden_aktivitet_giver_ingen() -> None:
+    assert ai_state(_token_kamera(), AELDE_AI_SVAR) == []
+
+
+def test_aeldre_form_med_person_giver_person() -> None:
+    svar = {**AELDE_AI_SVAR, "people": {"alarm_state": 1, "support": 1}}
+    aktiv = ai_state(_token_kamera(), svar)
+    assert aktiv == [{"type": "people", "label": "Person"}]
+
+
+def test_aeldre_form_med_flere_typer() -> None:
+    svar = {
+        **AELDE_AI_SVAR,
+        "people": {"alarm_state": 1, "support": 1},
+        "vehicle": {"alarm_state": 1, "support": 1},
+    }
+    typer = {d["type"] for d in ai_state(_token_kamera(), svar)}
+    assert typer == {"people", "vehicle"}
+
+
+def test_ikke_supported_typer_ignores() -> None:
+    # face har support=0. Selv hvis alarm_state var 1, må den ikke
+    # give en falsk registrering, fordi kameraet slet ikke kan se den.
+    svar = {**AELDE_AI_SVAR, "face": {"alarm_state": 1, "support": 0}}
+    assert ai_state(_token_kamera(), svar) == []
+
+
+def test_hund_og_kat_genkendes() -> None:
+    # dog_cat står i kameraets svar, men var ikke i etiketterne, så den
+    # ville være sprunget over.
+    svar = {**AELDE_AI_SVAR, "dog_cat": {"alarm_state": 1, "support": 1}}
+    aktiv = ai_state(_token_kamera(), svar)
+    assert aktiv == [{"type": "dog_cat", "label": "Kæledyr"}]
+
+
+def test_personfilter_stadig_vaerker_i_aeldre_form() -> None:
+    svar = {**AELDE_AI_SVAR, "people": {"alarm_state": 1, "support": 1}}
+    kamera = ReolinkCamera({**KAMERA, "person_enabled": False})
+    assert ai_state(kamera, svar) == []
+
+
+def test_ny_form_læses_stadig() -> None:
+    # Vi må ikke have brudt de nyere kameraer, som svarer med
+    # value.data.aiState[0].aiState[].
+    svar = {"data": {"aiState": [{"aiState": [
+        {"type": "people", "state": 1},
+        {"type": "vehicle", "state": 0},
+    ]}]}}
+    aktiv = ai_state(_token_kamera(), svar)
+    assert aktiv == [{"type": "people", "label": "Person"}]
+
+
+def test_tomt_svar_giver_ingen_aktivitet() -> None:
+    assert ai_state(_token_kamera(), {}) == []
+    assert ai_state(_token_kamera(), {"data": {}}) == []

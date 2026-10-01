@@ -23,6 +23,7 @@ DETECTION_LABELS = {
     "face": "Ansigt",
     "pet": "Kæledyr",
     "animal": "Dyr",
+    "dog_cat": "Kæledyr",
     "abnormal": "Unormalt",
 }
 
@@ -436,18 +437,50 @@ class ReolinkCamera:
             [{"cmd": "GetAiState", "param": {"channel": self.channel}}],
             token=True,
         )
+        value = body[0].get("value") or {}
         active: list[dict[str, Any]] = []
-        data = ((body[0].get("value") or {}).get("data") or {})
-        ai_state = data.get("aiState") or []
-        entry = ai_state[0] if ai_state else {}
-        states = entry.get("aiState") or []
-        for item in states:
-            detection_type = str(item.get("type") or "").lower()
-            state = item.get("state")
+        data = value.get("data") or {}
+        if isinstance(data, dict) and data.get("aiState") is not None:
+            # Nyere firmware: value.data.aiState[0].aiState[] med type/state.
+            ai_state = data.get("aiState") or []
+            entry = ai_state[0] if ai_state else {}
+            states = entry.get("aiState") or []
+            for item in states:
+                detection_type = str(item.get("type") or "").lower()
+                state = item.get("state")
+                try:
+                    is_active = int(state) > 0 if state is not None else False
+                except (TypeError, ValueError):
+                    is_active = bool(state)
+                if not is_active:
+                    continue
+                if detection_type == "people" and not self.person_enabled:
+                    continue
+                if detection_type == "vehicle" and not self.vehicle_enabled:
+                    continue
+                active.append(
+                    {
+                        "type": detection_type,
+                        "label": DETECTION_LABELS.get(detection_type, detection_type),
+                    }
+                )
+            return active
+        # Ældre firmware: value har en nøgle pr. type, hver med
+        # {alarm_state, support}. Det er denne form vores testkamera
+        # svarer i, og den gav tidligere altid tom, fordi appen ledte
+        # efter et data.aiState-felt der ikke findes.
+        for raw_type, info in value.items():
+            if not isinstance(info, dict):
+                continue
+            detection_type = str(raw_type).lower()
+            if detection_type not in DETECTION_LABELS:
+                continue
+            if int(info.get("support") or 0) == 0:
+                continue
             try:
-                is_active = int(state) > 0 if state is not None else False
+                is_active = int(info.get("alarm_state") or 0) > 0
             except (TypeError, ValueError):
-                is_active = bool(state)
+                is_active = bool(info.get("alarm_state"))
             if not is_active:
                 continue
             if detection_type == "people" and not self.person_enabled:
