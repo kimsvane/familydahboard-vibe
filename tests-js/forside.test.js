@@ -103,7 +103,7 @@ vm.runInContext(source, context, { filename: "app.js" });
 
 const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature, themeForNow, clockMinutes,
   renderForsideHints, renderReminderSourceOptions, reminderSourceLabel, reminderMatchLabel,
-  genindlaesAlt, handleDetections, pollCameras, renderForsideBirthday } = context;
+  genindlaesAlt, handleDetections, pollCameras, renderForsideBirthday, fejltekst } = context;
 
 let bestævrelser = 0;
 // Enkelte tjek er asynkrone, så de skal vente. De køres i rækkefølge og
@@ -610,6 +610,26 @@ tjek("et fodselsdagsnavn med HTML escapes stadig faar flag", () => {
   } finally {
     context.document.querySelector = gemt;
   }
+});
+
+tjek("valideringsfejl bliver læselig tekst, ikke [object Object]", () => {
+  // FastAPI svarer med en liste af objekter ved 422. new Error() paa en
+  // liste gav bogstaveligt talt "[object Object]" i toasten, saa man
+  // ikke kunne se hvad der var galt.
+  const liste = [
+    { type: "extra_forbidden", loc: ["body", "has_password"], msg: "Extra inputs are not permitted", input: false },
+    { type: "string_too_short", loc: ["body", "name"], msg: "String should have at least 1 character", input: "" },
+  ];
+  assert.ok(!fejltekst(liste).includes("[object Object]"), "listen må ikke blive en [object Object]");
+  assert.ok(fejltekst(liste).includes("has_password: Extra inputs are not permitted"), "fältet skal nævnes ved navn");
+  assert.ok(fejltekst(liste).includes("name: String should have at least 1 character"), "alle fejl skal med");
+  assert.ok(!fejltekst(liste).includes("body."), "'body' skal ikke stå i vejen for det brugbare feltnavn");
+  // Almindelige fejl skal stadig virke som tekst.
+  assert.equal(fejltekst("Camera not found"), "Camera not found");
+  assert.equal(fejltekst(["Login mislykkedes"]), "Login mislykkedes");
+  assert.equal(fejltekst(undefined), "Noget gik galt");
+  assert.equal(fejltekst([]), "Noget gik galt");
+  assert.ok(!fejltekst({ fejl: 1 }).includes("[object Object]"), "et objekt må heller ikke blive [object Object]");
 });
 
 afslut("tjek gennemforsidens logik, alle bestaaet.");

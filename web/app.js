@@ -109,6 +109,23 @@ function getCookie(name) {
   return document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.split("=").slice(1).join("=") || "";
 }
 
+// FastAPI sender valideringsfejl som en liste af objekter, ikke som en
+// tekst. new Error() på en liste giver "[object Object]", som forklarer
+// intet, så vi skriver felterne ud i stedet.
+function fejltekst(detail) {
+  if (typeof detail === "string") return detail.trim() || "Noget gik galt";
+  if (Array.isArray(detail)) {
+    const linjer = detail.map((fejl) => {
+      if (!fejl || typeof fejl !== "object") return String(fejl);
+      const sted = Array.isArray(fejl.loc) ? fejl.loc.filter((del) => del !== "body").join(".") : "";
+      return sted ? `${sted}: ${fejl.msg || "ugyldig værdi"}` : fejl.msg || "ugyldig værdi";
+    });
+    return linjer.length ? linjer.join(". ") : "Noget gik galt";
+  }
+  if (detail && typeof detail === "object") return JSON.stringify(detail);
+  return "Noget gik galt";
+}
+
 async function api(path, options = {}) {
   const request = { credentials: "same-origin", ...options, headers: { ...(options.headers || {}) } };
   if (request.body && !(request.body instanceof FormData)) {
@@ -129,7 +146,7 @@ async function api(path, options = {}) {
     throw new Error("Login required");
   }
   const payload = response.status === 204 ? {} : await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || "Noget gik galt");
+  if (!response.ok) throw new Error(fejltekst(payload.detail));
   return payload;
 }
 
@@ -1415,7 +1432,13 @@ function openCameraModal(camera = null) {
   const title = camera ? "Rediger kamera" : "Tilføj kamera";
   const pieces = splitCameraHost(camera?.host);
   const protocol = `<label for="field-scheme">Protokol</label><select id="field-scheme" name="scheme"><option value="http" ${pieces.scheme !== "https" ? "selected" : ""}>HTTP</option><option value="https" ${pieces.scheme === "https" ? "selected" : ""}>HTTPS</option></select>`;
-  const passwordExtra = camera ? " placeholder=\"Uændret hvis tomt\"" : "";
+  // Feltet er tomt med vilje, så den gemte kode ikke står i markup.
+  // Pladsholderen fortæller derfor hvilken tilstand kameraet er i, så
+  // man kan se om koden overhovedet er gemt.
+  const gemtPassword = Boolean(camera && state.cameras.find((item) => item.id === camera.id)?.has_password);
+  const passwordExtra = camera
+    ? ` placeholder="${gemtPassword ? "Gemt – skriv kun for at ændre" : "Ingen gemt – påkrævet til alarm"}"`
+    : "";
   const body = `${field("Navn", "name", camera?.name || "", "text", "required maxlength=120")}${field("IP-adresse eller hostnavn", "host", pieces.host, "text", "required maxlength=250 placeholder='192.168.1.219'")}<div class="form-row"><div>${protocol}</div><div><label for="field-port">Web-port</label><input id="field-port" name="port" type="number" value="${escapeHtml(pieces.port)}" min="1" max="65535" step="1" required></div></div><p class="muted small-copy">Web-porten bruges til kameraets API (snapshots + AI-tilstand). Reolink-standarder: HTTP 80, HTTPS 443 – nyere NVR'er accepterer ofte kun HTTPS. Prøv HTTP 80 først, derefter 443. Kanal 0 er den første stream.</p>${field("Brugernavn", "username", camera?.username || "", "text", "maxlength=320")}${field("Password", "password", "", "password", `maxlength=200${passwordExtra}`)}${field("Kanal (0–31)", "channel", camera?.channel ?? 0, "number", "min=0 max=31 step=1")}${field("Live-stream URL (RTSP)", "live_stream_url", camera?.live_stream_url || "", "text", "maxlength=2000 placeholder='rtsp://brugernavn:kode@192.168.1.174:554/h264Preview_01_main'")}<p class="muted small-copy">Live-streamen bruges til video i aktivitets-popuppen og i “▶” på kameraet. Dashboardet konverterer RTSP automatisk via ffmpeg, så det kan vises i browseren. Brug kameraets RTSP-adresse, fx <code>rtsp://brugernavn:kode@IP:554/h264Preview_01_main</code> (mainstream) eller <code>…/h264Preview_01_sub</code> (let sub-stream). Lad feltet stå tomt, hvis du ikke vil streame.</p><div class="form-row"><label class="check-label"><input type="checkbox" name="person_enabled" ${camera?.person_enabled !== false ? "checked" : ""}> Person-alarm</label><label class="check-label"><input type="checkbox" name="vehicle_enabled" ${camera?.vehicle_enabled !== false ? "checked" : ""}> Køretøj-alarm</label><label class="check-label"><input type="checkbox" name="snapshots_enabled" ${camera?.snapshots_enabled !== false ? "checked" : ""}> Snapshots</label></div>`;
   openModal(title, body, async (values) => {
     const payload = {
@@ -1423,7 +1446,6 @@ function openCameraModal(camera = null) {
       host: `${values.scheme}://${values.host.trim()}:${Number(values.port) || (values.scheme === "https" ? 443 : 80)}`,
       username: (values.username || "").trim(),
       password: values.password || "",
-      has_password: Boolean(state.cameras.find((item) => item.id === camera?.id)?.has_password),
       channel: Number(values.channel || 0),
       live_stream_url: (values.live_stream_url || "").trim(),
       person_enabled: values.person_enabled === "on",
