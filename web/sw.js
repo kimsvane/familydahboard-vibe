@@ -1,5 +1,5 @@
 const CACHE_NAME = "family-dashboard-__BUILD__";
-const APP_SHELL = ["/", "/assets/styles.css", "/assets/app.js", "/manifest.webmanifest"];
+const APP_SHELL = ["/", "/assets/styles.css", "/assets/app.js", "/assets/fa-solid-900.woff2", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));

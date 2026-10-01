@@ -579,33 +579,33 @@ tjek(" ét fejlslag dræber ikke overvågningen, poppen kommer tilbage", async (
   }
 });
 
-tjek("foedselsdagsnavnet faar et dansk flag foran", () => {
+tjek("foedselsdagsnavnet faar en kageikon foran", () => {
   const m = { innerHTML: "" };
   const gemt = context.document.querySelector;
   context.document.querySelector = (vælger) => (vælger === "#forside-birthday" ? m : gemt(vælger));
   try {
     renderForsideBirthday([{ name: "Emma", days_until: 3, age: 40, next_occurrence: "2026-11-02" }]);
-    // Flaget skal komme foer navnet, og navnet skal escapes.
-    const flag = m.innerHTML.indexOf("fodselsdag__flag");
+    // Kagen skal komme foer navnet, og navnet skal escapes.
+    const kage = m.innerHTML.indexOf("fodselsdag__flag");
     const navn = m.innerHTML.indexOf("Emma");
-    assert.ok(flag >= 0, "der skal være et flag");
-    assert.ok(flag < navn, "flaget skal stå foran navnet");
-    assert.ok(m.innerHTML.includes("fodselsdag__navn-tekst"), "navnet skal have sin egen boks, så flaget kan stå i flex");
-    // Det er et dekorativt flag, ikke indhold, så skærmlæseren skal springe over.
-    assert.ok(m.innerHTML.includes('aria-hidden="true"'), "flaget skal være aria-hidden");
-    assert.ok(m.innerHTML.includes('class="fodselsdag__flag"'), "flaget skal have sin egen klasse");
+    assert.ok(kage >= 0, "der skal være et kageikon");
+    assert.ok(kage < navn, "kagen skal stå foran navnet");
+    assert.ok(m.innerHTML.includes("fodselsdag__navn-tekst"), "navnet skal have sin egen boks, så kagen kan stå i flex");
+    // Det er et dekorativt ikon, ikke indhold, så skærmlæseren skal springe over.
+    assert.ok(m.innerHTML.includes('aria-hidden="true"'), "kagen skal være aria-hidden");
+    assert.ok(m.innerHTML.includes('class="fodselsdag__flag"'), "kagen skal have sin egen klasse");
   } finally {
     context.document.querySelector = gemt;
   }
 });
 
-tjek("et fodselsdagsnavn med HTML escapes stadig faar flag", () => {
+tjek("et fodselsdagsnavn med HTML escapes stadig faar kageikon", () => {
   const m = { innerHTML: "" };
   const gemt = context.document.querySelector;
   context.document.querySelector = (vælger) => (vælger === "#forside-birthday" ? m : gemt(vælger));
   try {
     renderForsideBirthday([{ name: "<script>x</script>", days_until: 1, age: 5, next_occurrence: "2026-01-01" }]);
-    assert.ok(m.innerHTML.includes("fodselsdag__flag"), "flaget skal stadig vises");
+    assert.ok(m.innerHTML.includes("fodselsdag__flag"), "kagen skal stadig vises");
     assert.ok(!m.innerHTML.includes("<script>"), "navnet skal escapes");
   } finally {
     context.document.querySelector = gemt;
