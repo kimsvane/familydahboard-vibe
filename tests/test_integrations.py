@@ -317,12 +317,16 @@ def test_camera_snapshot_decodes_base64():
         }
     )
 
-    async def fake_post(_self, _client, command, payload, token):
+    async def fake_request(_self, _client, command, payload, token):
         if command == "Snap":
-            return [{"value": {"snap": "ZnJrLWpwZWc="}}]
+            return httpx.Response(
+                200,
+                json=[{"code": 0, "value": {"snap": "ZnJrLWpwZWc="}}],
+                headers={"content-type": "application/json"},
+            )
         raise AssertionError(f"unexpected command {command}")
 
-    with patch.object(ReolinkCamera, "_post", new=fake_post), patch.object(
+    with patch.object(ReolinkCamera, "_request", new=fake_request), patch.object(
         ReolinkCamera, "_ensure_token", new=AsyncMock(return_value="tok")
     ):
         async def run():

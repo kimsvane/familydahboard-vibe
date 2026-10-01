@@ -251,7 +251,7 @@ class ReolinkCamera:
         # først næste gang i stedet for at lede fra bunden hver gang.
         self._login_format: Optional[int] = None
 
-    async def _post(
+    async def _request(
         self,
         client: httpx.AsyncClient,
         command: str,
@@ -259,6 +259,11 @@ class ReolinkCamera:
         token: bool,
         allow_digest: bool = True,
     ) -> httpx.Response:
+        """Send CGI-kaldet og håndtér auth, uden at tolke svaret.
+
+        Snap på ældre firmware svarer med rå JPEG i stedet for JSON, så
+        selve HTTP-delen er skilt ud fra JSON-tolkningen.
+        """
         token_part = f"&token={self._token}" if token and self._token else "&token=null"
         uri = f"/cgi-bin/api.cgi?cmd={command}{token_part}"
         url = f"{self.base_url}{uri}"
@@ -288,12 +293,23 @@ class ReolinkCamera:
                     command,
                     self.base_url,
                 )
-                return await self._post(client, command, payload, token, allow_digest=False)
+                return await self._request(client, command, payload, token, allow_digest=False)
             raise ReolinkError(
                 "Kameraet kræver godkendelse (HTTP 401) – kontrollér brugernavn/adgangskode"
             )
         if response.status_code != 200:
             raise ReolinkError(f"Kameraet returnerede HTTP {response.status_code}")
+        return response
+
+    async def _post(
+        self,
+        client: httpx.AsyncClient,
+        command: str,
+        payload: list[Any],
+        token: bool,
+    ) -> httpx.Response:
+        response = await self._request(client, command, payload, token)
+
         try:
             body = response.json()
         except ValueError as exc:
@@ -359,40 +375,32 @@ class ReolinkCamera:
                 "under Kameraer, ellers afviser Reolink login (code=1)"
             )
         digest = hashlib.md5(self.password.encode("utf-8")).hexdigest()
-        # Rækkefølgen af login-formater. Hvert kamera får kun prøvet
-        # ét omgangen, og resultatet huskes, så vi ikke bombarderer
-        # kameraet med forkerte protokoller hvert femte sekund.
-        #  0 = den moderne, som nyere Reolink bruger
-        #  1 = webinterfacets format med action-feltet (ældre firmware)
-        formater = [
-            lambda: [
-                {
-                    "cmd": "Login",
-                    "param": {
-                        "User": {"userName": self.username, "password": digest},
-                        "token": {"name": "null"},
-                    },
-                }
-            ],
-            lambda: [
-                {
-                    "cmd": "Login",
-                    "action": 0,
-                    "param": {
-                        "User": {"userName": self.username, "password": digest},
-                        "token": {"name": "null"},
-                    },
-                }
-            ],
-        ]
+        # Hvordan adgangskoden skal sendes. Nyere Reolink vil have den
+        # MD5-hashet, ældre firmware vil have den i klar tekst. Det er
+        # den eneste forskel, og den kan ikke forudses af firmware-
+        # versionen, så vi prøver den ene og husker resultatet.
+        #  0 = MD5 (moderne)
+        #  1 = klar tekst (ældre)
+        formater = [digest, self.password]
         valgte = self._login_format if self._login_format is not None else 0
-        # Vi prøver den valgte metode først, og derefter de andre, men kun
+        # Vi prøver den valgte metode først, og derefter den anden, men kun
         # efter en protokolfejl. En afvist adgangskode afbryder med det samme.
         rækkefølge = [valgte] + [i for i in range(len(formater)) if i != valgte]
         sidste_fejl: Optional[ReolinkError] = None
         for indeks in rækkefølge:
             try:
-                body = await self._login_body(client, formater[indeks]())
+                body = await self._login_body(
+                    client,
+                    [
+                        {
+                            "cmd": "Login",
+                            "param": {
+                                "User": {"userName": self.username, "password": formater[indeks]},
+                                "token": {"name": "null"},
+                            },
+                        }
+                    ],
+                )
             except ReolinkProtocolError as fejl:
                 sidste_fejl = fejl
                 logger.debug(
@@ -410,7 +418,9 @@ class ReolinkCamera:
                 self._token = str(token)
                 self._token_at = time.monotonic()
                 logger.info(
-                    "Reolink login på %s lykkedes med format %d", self.base_url, indeks
+                    "Reolink login på %s lykkedes med adgangskode-format %d",
+                    self.base_url,
+                    indeks,
                 )
                 return self._token
             raise ReolinkError("Login mislykkedes – kontrollér brugernavn/adgangskode")
@@ -454,12 +464,28 @@ class ReolinkCamera:
 
     async def snapshot(self, client: httpx.AsyncClient) -> bytes:
         await self._ensure_token(client)
-        body = await self._post(
-            client,
-            "Snap",
-            [{"cmd": "Snap", "param": {"channel": self.channel}}],
-            token=True,
+        response = await self._request(
+            client, "Snap", [{"cmd": "Snap", "param": {"channel": self.channel}}], token=True
         )
+        # Nyere firmware svarer med base64 i JSON. Ældre svarer med rå
+        # JPEG, og det er den, vores testkamera gør.
+        content_type = (response.headers.get("content-type") or "").lower()
+        if content_type.startswith("image/") or response.content[:2] == b"\xff\xd8":
+            if not response.content:
+                raise ReolinkError("Kameraet returnerede intet snapshot")
+            return response.content
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ReolinkError("Kameraet returnerede hverken billede eller JSON") from exc
+        if not isinstance(body, list) or not body:
+            raise ReolinkError("Kameraet returnerede en tom respons")
+        code = body[0].get("code")
+        if code not in (0, None):
+            raise ReolinkError(
+                f"Kameraet afviste snapshot (code={code} – "
+                f"{_REOLINK_ERROR_CODES.get(int(code), 'ukendt fejl')})"
+            )
         snap = ((body[0].get("value") or {}) or {}).get("snap")
         if not snap:
             raise ReolinkError("Kameraet returnerede ingen snapshot")

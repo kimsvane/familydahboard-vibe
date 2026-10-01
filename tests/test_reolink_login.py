@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 
 import httpx
 import pytest
@@ -112,8 +113,12 @@ def gammelt_kamera() -> tuple[httpx.MockTransport, list[dict]]:
 
     def handler(request: httpx.Request) -> httpx.Response:
         krop = request.read().decode()
-        kalde.append({"krop": krop, "auth": request.headers.get("authorization", "")})
-        if '"action"' in krop:
+        # Vi læser kroppen som JSON, så testen ikke afhænger af om
+        # der er mellemrum efter kolon.
+        sendt = json.loads(krop)[0]["param"]["User"]["password"]
+        kalde.append({"krop": krop, "sendt": sendt, "auth": request.headers.get("authorization", "")})
+        # Ældre firmware afviser alt, der ikke er koden i klar tekst.
+        if sendt == "hemmeligt":
             return httpx.Response(200, json=[{
                 "cmd": "Login", "code": 0,
                 "value": {"Token": {"name": "token-abc"}},
@@ -145,8 +150,8 @@ def test_gammelt_kamera_finder_selv_det_arbejdende_format() -> None:
     # Første kald bruger det moderne format og fejler, næste bruger
     # webinterfacets. Vi må altså give op efter præcis to forsøg.
     assert len(kalde) == 2
-    assert '"action"' not in kalde[0]["krop"]
-    assert '"action"' in kalde[1]["krop"]
+    assert kalde[0]["sendt"] == DIGEST, "første forsøg er den hashede kode"
+    assert kalde[1]["sendt"] == "hemmeligt", "næste forsøg er koden i klar tekst"
 
 
 def test_det_arbejdende_format_huskes_til_naeste_kal() -> None:
@@ -252,3 +257,63 @@ def test_401_uden_udfordring_giver_klar_fejl() -> None:
     with pytest.raises(ReolinkError) as greb:
         login(ReolinkCamera(dict(KAMERA)), httpx.MockTransport(handler))
     assert "401" in str(greb.value)
+
+
+# ---------- Snapshot i to formater ----------
+
+def _token_kamera() -> ReolinkCamera:
+    """Et kamera der er logget ind, så snapshot kan testes isoleret."""
+    kamera = ReolinkCamera(dict(KAMERA))
+    kamera._token = "tok"
+    return kamera
+
+
+def snap(kamera: ReolinkCamera, transport: httpx.MockTransport) -> bytes:
+    async def koer() -> bytes:
+        async with httpx.AsyncClient(transport=transport) as klient:
+            return await kamera.snapshot(klient)
+
+    return asyncio.run(koer())
+
+
+# Et minimalt JPEG-header (ffd8 = JPEG start).
+RAAT_JPEG = b"\xff\xd8\xff\xdb" + b"\x00" * 40 + b"\xff\xd9"
+
+
+def test_gammelt_kamera_svarer_med_raa_jpeg() -> None:
+    # Vores testkamera svarer på Snap med image/jpeg, ikke base64-JSON.
+    # Uden denne håndtering fejler hvert eneste snapshot.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=RAAT_JPEG, headers={"content-type": "image/jpeg"})
+
+    assert snap(_token_kamera(), httpx.MockTransport(handler)) == RAAT_JPEG
+
+
+def test_nyt_kamera_svarer_med_base64_json() -> None:
+    import base64 as b64
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{
+            "cmd": "Snap", "code": 0,
+            "value": {"snap": b64.b64encode(RAAT_JPEG).decode()},
+        }])
+
+    assert snap(_token_kamera(), httpx.MockTransport(handler)) == RAAT_JPEG
+
+
+def test_snapshot_uden_content_type_erkendes_via_jpeg_signatur() -> None:
+    # Nogle kameraer sender intet content-type. JPEG-signaturen er
+    # så det eneste vi kan stole på.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=RAAT_JPEG)
+
+    assert snap(_token_kamera(), httpx.MockTransport(handler)) == RAAT_JPEG
+
+
+def test_tomt_snapshot_giver_klar_fejl() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"", headers={"content-type": "image/jpeg"})
+
+    with pytest.raises(ReolinkError) as greb:
+        snap(_token_kamera(), httpx.MockTransport(handler))
+    assert "intet snapshot" in str(greb.value).lower()
