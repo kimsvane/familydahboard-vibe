@@ -131,6 +131,7 @@ class CameraCreate(Model):
     person_enabled: bool = True
     vehicle_enabled: bool = True
     snapshots_enabled: bool = True
+    popup_enabled: bool = True
     live_stream_url: str = Field(default="", max_length=2000)
 
 
@@ -143,6 +144,7 @@ class CameraUpdate(Model):
     person_enabled: Optional[bool] = None
     vehicle_enabled: Optional[bool] = None
     snapshots_enabled: Optional[bool] = None
+    popup_enabled: Optional[bool] = None
     live_stream_url: Optional[str] = Field(default=None, max_length=2000)
     sort_order: Optional[int] = Field(default=None, ge=0, le=10000)
 

@@ -802,6 +802,7 @@ async def create_camera(payload: CameraCreate) -> dict[str, Any]:
             payload.vehicle_enabled,
             payload.snapshots_enabled,
             payload.live_stream_url.strip(),
+            payload.popup_enabled,
         )
     }
 

@@ -612,6 +612,42 @@ tjek("et fodselsdagsnavn med HTML escapes stadig faar flag", () => {
   }
 });
 
+tjek("et kamera med popup fra springer ikke poppen over", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    // Aktivt, men popup slået fra. Aktivitetsloggen må gerne vise det,
+    // poppen må ikke.
+    handleDetections({ ...aktivitet(), active: [
+      { id: 1, name: "Have", types: [{ type: "people", label: "Person" }],
+        since: "2026-09-30T08:00:00+00:00", popup_enabled: false },
+    ] });
+    assert.equal(popup.hidden, true, "et fra-slået kamera må ikke give popup");
+    assert.equal(popup.innerHTML, "", "der skal ikke efterlades en tom popup");
+    assert.equal(kontekstTimere.length, 0, "der må ikke planlægges timere for et fra-slået kamera");
+  });
+});
+
+tjek("popup slaaet til giver stadig poppen", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections({ ...aktivitet(), active: [
+      { id: 1, name: "Entré", types: [{ type: "people", label: "Person" }],
+        since: "2026-09-30T08:00:00+00:00", popup_enabled: true },
+    ] });
+    assert.equal(popup.hidden, false, "indkørslen skal give popup");
+  });
+});
+
+tjek("manglende popup-flag regnes som slaet til, saa intet brydes ved opgradering", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    // En gammel server sender ikke flaget. Da skal poppen stadig komme,
+    // ellers forsvinder den bare efter en opgradering af den ene side.
+    handleDetections(aktivitet());
+    assert.equal(popup.hidden, false, "manglende flag må ikke slå poppen fra");
+  });
+});
+
 tjek("valideringsfejl bliver læselig tekst, ikke [object Object]", () => {
   // FastAPI svarer med en liste af objekter ved 422. new Error() paa en
   // liste gav bogstaveligt talt "[object Object]" i toasten, saa man

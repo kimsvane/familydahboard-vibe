@@ -130,6 +130,10 @@ class ReolinkCamera:
         self.person_enabled = bool(camera.get("person_enabled", True))
         self.vehicle_enabled = bool(camera.get("vehicle_enabled", True))
         self.snapshots_enabled = bool(camera.get("snapshots_enabled", True))
+        # Et kamera kan være slået fra for popup. Det skal stadig logge
+        # aktivitet, så kamerakortet ikke går i sort, men det må ikke
+        # springe en fuld skærm frem midt i en kveld.
+        self.popup_enabled = bool(camera.get("popup_enabled", True))
         self.timeout = timeout
         self._token: Optional[str] = None
         self._token_at = 0.0
@@ -323,6 +327,7 @@ class CameraMonitor:
 
         if types:
             tidligere = self._active.get(camera_id) or {}
+            popup_enabled = camera.popup_enabled
             self._active[camera_id] = {
                 "id": camera_id,
                 "name": camera_row.get("name") or "Kamera",
@@ -336,6 +341,9 @@ class CameraMonitor:
                 # live-streamen, fordi billedet blev ødelagt og lavet på
                 # ny, mens ffmpeg knap nåede at starte.
                 "since": tidligere.get("since") or now,
+                # sendes med, så forsiden kan skelne mellem "aktivt" i
+                # loggen og "skal give popup".
+                "popup_enabled": popup_enabled,
             }
         else:
             self._active.pop(camera_id, None)

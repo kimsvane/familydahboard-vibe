@@ -1321,7 +1321,10 @@ function startLiveInPopup(key) {
 
 function handleDetections(activity) {
   const popup = $("#detect-popup");
-  const active = activity.active || [];
+  // Kun kameraer med popup slået til. Aktivitetsloggen viser gerne alle,
+  // men en popup fra gaden eller soveværelset hører ikke hjem midt i en
+  // kveld. Serveren sender flaget med, så slipper vi et ekstra opslag.
+  const active = (activity.active || []).filter((kamera) => kamera.popup_enabled !== false);
   if (!active.length) {
     stopDetectTimers();
     closeDetectPopup();
@@ -1439,7 +1442,7 @@ function openCameraModal(camera = null) {
   const passwordExtra = camera
     ? ` placeholder="${gemtPassword ? "Gemt – skriv kun for at ændre" : "Ingen gemt – påkrævet til alarm"}"`
     : "";
-  const body = `${field("Navn", "name", camera?.name || "", "text", "required maxlength=120")}${field("IP-adresse eller hostnavn", "host", pieces.host, "text", "required maxlength=250 placeholder='192.168.1.219'")}<div class="form-row"><div>${protocol}</div><div><label for="field-port">Web-port</label><input id="field-port" name="port" type="number" value="${escapeHtml(pieces.port)}" min="1" max="65535" step="1" required></div></div><p class="muted small-copy">Web-porten bruges til kameraets API (snapshots + AI-tilstand). Reolink-standarder: HTTP 80, HTTPS 443 – nyere NVR'er accepterer ofte kun HTTPS. Prøv HTTP 80 først, derefter 443. Kanal 0 er den første stream.</p>${field("Brugernavn", "username", camera?.username || "", "text", "maxlength=320")}${field("Password", "password", "", "password", `maxlength=200${passwordExtra}`)}${field("Kanal (0–31)", "channel", camera?.channel ?? 0, "number", "min=0 max=31 step=1")}${field("Live-stream URL (RTSP)", "live_stream_url", camera?.live_stream_url || "", "text", "maxlength=2000 placeholder='rtsp://brugernavn:kode@192.168.1.174:554/h264Preview_01_main'")}<p class="muted small-copy">Live-streamen bruges til video i aktivitets-popuppen og i “▶” på kameraet. Dashboardet konverterer RTSP automatisk via ffmpeg, så det kan vises i browseren. Brug kameraets RTSP-adresse, fx <code>rtsp://brugernavn:kode@IP:554/h264Preview_01_main</code> (mainstream) eller <code>…/h264Preview_01_sub</code> (let sub-stream). Lad feltet stå tomt, hvis du ikke vil streame.</p><div class="form-row"><label class="check-label"><input type="checkbox" name="person_enabled" ${camera?.person_enabled !== false ? "checked" : ""}> Person-alarm</label><label class="check-label"><input type="checkbox" name="vehicle_enabled" ${camera?.vehicle_enabled !== false ? "checked" : ""}> Køretøj-alarm</label><label class="check-label"><input type="checkbox" name="snapshots_enabled" ${camera?.snapshots_enabled !== false ? "checked" : ""}> Snapshots</label></div>`;
+  const body = `${field("Navn", "name", camera?.name || "", "text", "required maxlength=120")}${field("IP-adresse eller hostnavn", "host", pieces.host, "text", "required maxlength=250 placeholder='192.168.1.219'")}<div class="form-row"><div>${protocol}</div><div><label for="field-port">Web-port</label><input id="field-port" name="port" type="number" value="${escapeHtml(pieces.port)}" min="1" max="65535" step="1" required></div></div><p class="muted small-copy">Web-porten bruges til kameraets API (snapshots + AI-tilstand). Reolink-standarder: HTTP 80, HTTPS 443 – nyere NVR'er accepterer ofte kun HTTPS. Prøv HTTP 80 først, derefter 443. Kanal 0 er den første stream.</p>${field("Brugernavn", "username", camera?.username || "", "text", "maxlength=320")}${field("Password", "password", "", "password", `maxlength=200${passwordExtra}`)}${field("Kanal (0–31)", "channel", camera?.channel ?? 0, "number", "min=0 max=31 step=1")}${field("Live-stream URL (RTSP)", "live_stream_url", camera?.live_stream_url || "", "text", "maxlength=2000 placeholder='rtsp://brugernavn:kode@192.168.1.174:554/h264Preview_01_main'")}<p class="muted small-copy">Live-streamen bruges til video i aktivitets-popuppen og i “▶” på kameraet. Dashboardet konverterer RTSP automatisk via ffmpeg, så det kan vises i browseren. Brug kameraets RTSP-adresse, fx <code>rtsp://brugernavn:kode@IP:554/h264Preview_01_main</code> (mainstream) eller <code>…/h264Preview_01_sub</code> (let sub-stream). Lad feltet stå tomt, hvis du ikke vil streame.</p><div class="form-row"><label class="check-label"><input type="checkbox" name="person_enabled" ${camera?.person_enabled !== false ? "checked" : ""}> Person-alarm</label><label class="check-label"><input type="checkbox" name="vehicle_enabled" ${camera?.vehicle_enabled !== false ? "checked" : ""}> Køretøj-alarm</label><label class="check-label"><input type="checkbox" name="snapshots_enabled" ${camera?.snapshots_enabled !== false ? "checked" : ""}> Snapshots</label><label class="check-label"><input type="checkbox" name="popup_enabled" ${camera?.popup_enabled !== false ? "checked" : ""}> Vis popup ved aktivitet</label></div><p class="muted small-copy">Popup er kun til for de kameraer, der skal springe frem paa skaermen, typisk indkørslen. Slaar du den fra, logger kameraet stadig aktivitet, men der dukker ingen popup op.</p>`;
   openModal(title, body, async (values) => {
     const payload = {
       name: values.name,
@@ -1451,6 +1454,7 @@ function openCameraModal(camera = null) {
       person_enabled: values.person_enabled === "on",
       vehicle_enabled: values.vehicle_enabled === "on",
       snapshots_enabled: values.snapshots_enabled === "on",
+      popup_enabled: values.popup_enabled === "on",
     };
     await api(camera ? `/api/cameras/${camera.id}` : "/api/cameras", { method: camera ? "PATCH" : "POST", body: payload });
     showToast(camera ? "Kameraet er opdateret" : "Kameraet er tilføjet");

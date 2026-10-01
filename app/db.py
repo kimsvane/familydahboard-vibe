@@ -190,6 +190,7 @@ class Database:
                     person_enabled INTEGER NOT NULL DEFAULT 1,
                     vehicle_enabled INTEGER NOT NULL DEFAULT 1,
                     snapshots_enabled INTEGER NOT NULL DEFAULT 1,
+                    popup_enabled INTEGER NOT NULL DEFAULT 1,
                     live_stream_url TEXT NOT NULL DEFAULT '',
                     sort_order INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
@@ -233,6 +234,15 @@ class Database:
                 )
             if "external_id" not in checklist_columns:
                 connection.execute("ALTER TABLE checklist_items ADD COLUMN external_id TEXT")
+            # Hvilke kameraer der skal give popup. Kun den indkørsel, man
+            # faktisk vil høre fra, skal springe en fuld skærm frem.
+            camera_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(cameras)").fetchall()
+            }
+            if "popup_enabled" not in camera_columns:
+                connection.execute(
+                    "ALTER TABLE cameras ADD COLUMN popup_enabled INTEGER NOT NULL DEFAULT 1"
+                )
             for key, value in self.default_settings.items():
                 connection.execute(
                     "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (key, value)
@@ -576,6 +586,7 @@ class Database:
         vehicle_enabled: bool,
         snapshots_enabled: bool,
         live_stream_url: str,
+        popup_enabled: bool = True,
     ) -> dict[str, Any]:
         now = utc_now()
         with self.connection() as connection:
@@ -584,8 +595,8 @@ class Database:
             ).fetchone()[0]
             cursor = connection.execute(
                 "INSERT INTO cameras(name, host, username, password, channel, person_enabled, "
-                "vehicle_enabled, snapshots_enabled, live_stream_url, sort_order, created_at, "
-                "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "vehicle_enabled, snapshots_enabled, popup_enabled, live_stream_url, sort_order, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     name,
                     host,
@@ -595,6 +606,7 @@ class Database:
                     int(person_enabled),
                     int(vehicle_enabled),
                     int(snapshots_enabled),
+                    int(popup_enabled),
                     live_stream_url,
                     order,
                     now,
@@ -620,11 +632,12 @@ class Database:
                 "person_enabled",
                 "vehicle_enabled",
                 "snapshots_enabled",
+                "popup_enabled",
                 "live_stream_url",
                 "sort_order",
             }
         }
-        for key in ("person_enabled", "vehicle_enabled", "snapshots_enabled"):
+        for key in ("person_enabled", "vehicle_enabled", "snapshots_enabled", "popup_enabled"):
             if key in fields:
                 fields[key] = int(bool(fields[key]))
         if not fields:
@@ -896,7 +909,7 @@ class Database:
     @staticmethod
     def _public(row: sqlite3.Row) -> dict[str, Any]:
         item = dict(row)
-        for key in ("enabled", "visible", "pinned", "done", "all_day"):
+        for key in ("enabled", "visible", "pinned", "done", "all_day", "popup_enabled"):
             if key in item:
                 item[key] = bool(item[key])
         if item.get("source_id") is not None:
