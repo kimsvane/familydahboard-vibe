@@ -466,10 +466,9 @@ function renderForsideBirthday(birthdays) {
     return;
   }
   const days = next.days_until === 0 ? "I dag" : next.days_until === 1 ? "I morgen" : `om ${next.days_until} dage`;
-  // Ikonet er en fødselsdagskage fra Font Awesome, som ligger lokalt
-  // (web/fa-solid-900.woff2). Kiosken kører Chromium på Linux og kan
-  // køre helt uden internet, så ikonet må ikke være en emoji eller
-  // hentes fra en CDN.
+  // Ikonet er en fødselsdagskage (🎂, U+1F382) som tegnes i CSS:before.
+  // Det bruger systemets emoji-skrift, så det virker på kiosken uden
+  // nogen ekstra ikonfil eller CDN.
   target.innerHTML = `
     <p class="fodselsdag__navn"><span class="fodselsdag__flag" aria-hidden="true"></span><span class="fodselsdag__navn-tekst">${escapeHtml(next.name)}</span></p>
     <p class="fodselsdag__dato">${escapeHtml(formatDate(next.next_occurrence, { day: "numeric", month: "long" }))} · ${next.age} år</p>
