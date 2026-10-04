@@ -114,8 +114,10 @@ document.querySelector('#quit-button')?.addEventListener('click', () => {
 initialize().catch((error) => setStatus(messageFrom(error), 'error'));
 
 // Vægindstillinger -----------------------------------------------------
-// Surface Pro 4 har ingen præsens-sensor, så skærmen vækkes ved et tryk
-// og ved bevægelse meldt fra Reolink-kameraet.
+// Surface Pro 4 har ingen præsens-sensor, så skærmen tændes ved bevægelse
+// meldt fra Reolink-kameraet eller manuelt via indstillingsvinduet. Væk-
+// overlay'et ("Tryk for at vække") er fjernet, da det ikke reagerede på
+// touch på denne skærm.
 
 const wallForm = document.querySelector('#wall-form');
 // Gemmes så formularen ikke mister værdier den ikke selv har et felt for.
@@ -207,7 +209,7 @@ function fillWallForm(settings) {
   if (rotationRadio) rotationRadio.checked = true;
   const value = document.querySelector('#rotation-static-value');
   if (value) value.value = settings?.display?.staticRotation ?? 'none';
-  const radio = wallForm?.querySelector(`input[name="mode"][value="${settings?.mode ?? 'schedule'}"]`);
+  const radio = wallForm?.querySelector(`input[name="mode"][value="${settings?.mode ?? 'always'}"]`);
   if (radio) radio.checked = true;
 
   const s = (id, value) => {
@@ -306,7 +308,7 @@ if (wallForm) {
   });
   document.querySelector('#screen-off-button')?.addEventListener('click', async () => {
     await api.setScreen({ on: false });
-    setWallResult('Skærmen er slukket. Tryk på den for at vække den.', 'ok');
+    setWallResult('Skærmen er slukket. Tænd den igen med "Tænd nu".', 'ok');
   });
   document.querySelector('#screen-on-button')?.addEventListener('click', async () => {
     await api.setScreen({ on: true });

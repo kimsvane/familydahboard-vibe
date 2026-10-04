@@ -42,7 +42,7 @@
           </label>
           <label class="valg">
             <input type="radio" name="mode" value="presence">
-            <span><strong>Når nogen er i nærheden</strong><small>Springer tidsplanen over. Barnet trykker bare på skærmen for at vække den</small></span>
+            <span><strong>Når nogen er i nærheden</strong><small>Springer tidsplanen over. Tændes ved bevægelse fra kameraet eller via indstillingerne</small></span>
           </label>
           <label class="valg">
             <input type="radio" name="mode" value="always">
@@ -80,7 +80,7 @@
             <input id="idle-minutes" type="number" min="0" max="600" step="5" inputmode="numeric">
             <span class="række__tekst">minutter uden aktivitet</span>
           </label>
-          <p class="hjælp">Sæt til 0 for aldrig at slukke. Når skærmen er slukket, kan den vækkes ved at trykke på den.</p>
+          <p class="hjælp">Sæt til 0 for aldrig at slukke. Væk-overlay'et "Tryk for at vække" er fjernet, så en slukket skærm tændes igen via "Tænd nu" i indstillingerne eller ved bevægelse fra kameraet.</p>
           <label class="kontakt">
             <input type="checkbox" id="wake-outside">
             <span>Bevægelse fra kameraet må vække skærmen uden for tidsplanen</span>

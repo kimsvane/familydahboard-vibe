@@ -14,6 +14,8 @@ function withSettings(overrides) {
   return { ...DEFAULTS, ...overrides };
 }
 
+const scheduleSettings = { ...DEFAULTS, mode: 'schedule' };
+
 const insideWindow = at(12, 0);
 const outsideWindow = at(23, 0);
 
@@ -28,7 +30,7 @@ test('parseTime læser HH:MM og afviser umulige værdier', () => {
 });
 
 test('tidsvindue der krydser midnat regnes som aktivt klokken 23:30', () => {
-  const night = { schedule: { enabled: true, from: '22:00', to: '06:00' } };
+  const night = { ...scheduleSettings, schedule: { enabled: true, from: '22:00', to: '06:00' } };
   assert.equal(decide(night, { now: at(23, 30) }).on, true);
   assert.equal(decide(night, { now: at(2, 0) }).on, true);
   assert.equal(decide(night, { now: at(7, 0) }).on, false);
@@ -40,19 +42,25 @@ test('tidsvindue der krydser midnat regnes som aktivt klokken 23:30', () => {
 });
 
 test('schedule-tilstand: tændt i vinduet, slukket uden for', () => {
-  assert.equal(decide(undefined, { now: insideWindow }).on, true);
-  assert.equal(decide(undefined, { now: outsideWindow }).on, false);
+  assert.equal(decide(scheduleSettings, { now: insideWindow }).on, true);
+  assert.equal(decide(scheduleSettings, { now: outsideWindow }).on, false);
+});
+
+test('som udgangspunkt er skærmen altid tændt', () => {
+  assert.equal(DEFAULTS.mode, 'always');
+  assert.equal(decide(DEFAULTS, { now: outsideWindow, presenceDetected: false, idleMinutes: 600 }).on, true);
+  assert.equal(decide(DEFAULTS, { now: at(3, 0) }).on, true);
 });
 
 test('slukket uden for tidsplanen med en grund', () => {
-  const result = decide(undefined, { now: outsideWindow });
+  const result = decide(scheduleSettings, { now: outsideWindow });
   assert.equal(result.on, false);
   assert.equal(result.brightness, 0);
   assert.equal(result.reason, 'outside-schedule');
 });
 
 test('tilstedeværelse vækker skærmen uden for tidsplanen', () => {
-  const result = decide(withSettings({ presence: { ...DEFAULTS.presence, wakeOutsideSchedule: true } }), {
+  const result = decide(withSettings({ mode: 'schedule', presence: { ...DEFAULTS.presence, wakeOutsideSchedule: true } }), {
     now: outsideWindow,
     presenceDetected: true,
   });
@@ -61,7 +69,7 @@ test('tilstedeværelse vækker skærmen uden for tidsplanen', () => {
 });
 
 test('vågning uden for tidsplanen kan slås fra', () => {
-  const result = decide(withSettings({ presence: { ...DEFAULTS.presence, wakeOutsideSchedule: false } }), {
+  const result = decide(withSettings({ mode: 'schedule', presence: { ...DEFAULTS.presence, wakeOutsideSchedule: false } }), {
     now: outsideWindow,
     presenceDetected: true,
   });
@@ -82,31 +90,31 @@ test('præsenstilstand slår tidsplanen helt fra', () => {
 });
 
 test('går i dvale efter 45 minutter uden tegn på liv i tidsvinduet', () => {
-  const result = decide(undefined, { now: insideWindow, presenceDetected: false, idleMinutes: 46 });
+  const result = decide(scheduleSettings, { now: insideWindow, presenceDetected: false, idleMinutes: 46 });
   assert.equal(result.on, false);
   assert.equal(result.reason, 'idle-timeout');
 });
 
 test('varm-up holder skærmen tændt de første minutter efter vækning', () => {
-  const result = decide(undefined, { now: insideWindow, presenceDetected: false, idleMinutes: 1 });
+  const result = decide(scheduleSettings, { now: insideWindow, presenceDetected: false, idleMinutes: 1 });
   assert.equal(result.on, true);
   assert.equal(result.reason, 'warming');
 });
 
 test('sluk aldrig med det samme igen lige efter opvågning', () => {
   for (const idle of [0, 1, 2]) {
-    assert.equal(decide(undefined, { now: insideWindow, presenceDetected: false, idleMinutes: idle }).on, true);
+    assert.equal(decide(scheduleSettings, { now: insideWindow, presenceDetected: false, idleMinutes: idle }).on, true);
   }
-  assert.equal(decide(undefined, { now: insideWindow, presenceDetected: false, idleMinutes: 3 }).on, true);
+  assert.equal(decide(scheduleSettings, { now: insideWindow, presenceDetected: false, idleMinutes: 3 }).on, true);
 });
 
 test('tilstedeværelse holder skærmen tændt uanset hvor længe den har været stille', () => {
-  const result = decide(undefined, { now: insideWindow, presenceDetected: true, idleMinutes: 600 });
+  const result = decide(scheduleSettings, { now: insideWindow, presenceDetected: true, idleMinutes: 600 });
   assert.equal(result.on, true);
 });
 
 test('deaktiveret præsenssensor gør at tomgangs-timeren holdes ude', () => {
-  const off = withSettings({ presence: { ...DEFAULTS.presence, enabled: false } });
+  const off = withSettings({ mode: 'schedule', presence: { ...DEFAULTS.presence, enabled: false } });
   const result = decide(off, { now: insideWindow, presenceDetected: false, idleMinutes: 600 });
   assert.equal(result.on, true);
 });
@@ -146,7 +154,7 @@ test('manuel lysstyrke bruges når automatik er slået fra', () => {
 });
 
 test('hverdagsfilter gælder, så vinduet ikke kører i weekenden', () => {
-  const kunHverdage = { schedule: { enabled: true, from: '06:30', to: '22:30', days: [1, 2, 3, 4, 5] } };
+  const kunHverdage = { ...scheduleSettings, schedule: { enabled: true, from: '06:30', to: '22:30', days: [1, 2, 3, 4, 5] } };
   // 2026-01-07 er en onsdag (day 3).
   assert.equal(decide(kunHverdage, { now: at(12, 0) }).on, true);
   // 2026-01-11 er en søndag (day 0).
@@ -155,7 +163,7 @@ test('hverdagsfilter gælder, så vinduet ikke kører i weekenden', () => {
 });
 
 test('nattevindue efter midnat tæller som forrige dags vindue', () => {
-  const kunMandag = { schedule: { enabled: true, from: '22:00', to: '06:00', days: [1] } };
+  const kunMandag = { ...scheduleSettings, schedule: { enabled: true, from: '22:00', to: '06:00', days: [1] } };
   const mandagAften = new Date(2026, 0, 5, 23, 0, 0, 0);
   const tirsdagNat = new Date(2026, 0, 6, 2, 0, 0, 0);
   const onsdagNat = new Date(2026, 0, 7, 2, 0, 0, 0);
@@ -165,7 +173,7 @@ test('nattevindue efter midnat tæller som forrige dags vindue', () => {
 });
 
 test('ugyldige tidsfelter slår tidsplanen fra i stedet for at gå i uvedvarende loop', () => {
-  const broken = { schedule: { enabled: true, from: 'xx', to: 'yy', days: [0, 1, 2, 3, 4, 5, 6] } };
+  const broken = { ...scheduleSettings, schedule: { enabled: true, from: 'xx', to: 'yy', days: [0, 1, 2, 3, 4, 5, 6] } };
   const result = decide(broken, { now: insideWindow });
   assert.equal(result.on, false);
 });

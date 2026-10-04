@@ -6,6 +6,11 @@ const test = require('node:test');
 const { DEFAULTS } = require('../src/power/policy');
 const { WallSupervisor } = require('../src/power/supervisor');
 
+// De fleste tests i denne fil øver tidsplan/dvale-logikken. Den er ikke
+// standard længere (som udgangspunkt er skærmen altid tændt), så den
+// vælges eksplicit her.
+const scheduleSettings = { ...DEFAULTS, mode: 'schedule' };
+
 function fakeScreen() {
   const calls = { on: 0, off: 0, brightness: [] };
   return {
@@ -22,12 +27,12 @@ function fakeScreen() {
   };
 }
 
-function build(settings, options = {}) {
+function build(settings = scheduleSettings, options = {}) {
   const screenControl = fakeScreen();
   const events = [];
   let clockMs = 0;
   const supervisor = new WallSupervisor({
-    settings: settings ?? DEFAULTS,
+    settings,
     readLight: options.readLight ?? (() => ({ lux: 200 })),
     screenControl,
     pollMs: 10_000_000,
@@ -125,10 +130,19 @@ test('skærmen tændes kun én gang, selv når beslutningen ikke ændrer sig', (
 });
 
 test('slukket skærm skærer både tænd- og dæmpningskald', () => {
-  const { supervisor, screenControl } = build(DEFAULTS, { readLight: () => ({ lux: 0 }) });
+  const { supervisor, screenControl } = build(scheduleSettings, { readLight: () => ({ lux: 0 }) });
   supervisor.clock = () => new Date(2026, 0, 7, 23, 0, 0, 0);
   supervisor.tick();
   assert.deepEqual(screenControl.calls.brightness, []);
+});
+
+test('uden valgte indstillinger er skærmen altid tændt, også om natten', () => {
+  const { supervisor, screenControl } = build(DEFAULTS);
+  supervisor.clock = () => new Date(2026, 0, 7, 23, 30, 0, 0);
+  supervisor.tick();
+  assert.equal(screenControl.calls.off, 0);
+  assert.equal(supervisor.state.on, true);
+  assert.equal(supervisor.state.reason, 'always');
 });
 
 test('forceOff slukker skærmen selv om nogen er til stede', () => {

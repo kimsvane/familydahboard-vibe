@@ -16,7 +16,6 @@ const uiDirectory = path.join(__dirname, '..', 'ui');
 let mainWindow = null;
 let controlWindow = null;
 let handleWindow = null;
-let wakeWindow = null;
 let settings = null;
 let wallSettings = DEFAULTS;
 let configurationError = '';
@@ -100,64 +99,10 @@ function hideHandle() {
   }
 }
 
-/// Vågnevinduet ligger altid øverst og fanger ethvert tryk, når skærmen
-/// ellers er slukket. Det er den eneste måde at vække skærmen på, når
-/// dashboardet er en fjern server og intet er synligt.
-function createWakeWindow() {
-  wakeWindow = new BrowserWindow({
-    show: false,
-    frame: false,
-    fullscreen: true,
-    kiosk: true,
-    skipTaskbar: true,
-    alwaysOnTop: true,
-    enableLargerThanScreen: true,
-    hasShadow: false,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    focusable: true,
-    backgroundColor: '#05070f',
-    title: 'Tryk for at vække',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  wakeWindow.setAlwaysOnTop(true, 'screen-saver');
-  wakeWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  wakeWindow.loadFile(path.join(uiDirectory, 'wake.html'));
-  wakeWindow.on('closed', () => {
-    wakeWindow = null;
-  });
-  // En skærm der ikke kan modtage input er ubrugelig som vækkeflade.
-  wakeWindow.on('moved', () => {
-    if (wakeWindow && !wakeWindow.isDestroyed() && wakeWindow.isVisible()) {
-      wakeWindow.setBounds({ x: 0, y: 0 });
-    }
-  });
-}
-
-function showWakeWindow() {
-  if (!wakeWindow || wakeWindow.isDestroyed() || isQuitting) {
-    return;
-  }
-  if (controlWindow && !controlWindow.isDestroyed()) {
-    return;
-  }
-  if (!wakeWindow.isVisible()) {
-    wakeWindow.showInactive();
-    wakeWindow.focus();
-  }
-}
-
-function hideWakeWindow() {
-  if (wakeWindow && !wakeWindow.isDestroyed() && wakeWindow.isVisible()) {
-    wakeWindow.hide();
-  }
-}
+/// Skærmen kan ikke vækkes ved et tryk på selve overlay'et længere:
+/// væk-vinduet viste en sort flade med en cirkel, der ikke reagerede på
+/// Surface Pro 4'eren. Skærmen holdes nu simpelthen tændt, og man tænder
+/// den igen via indstillingernes "Tænd nu", hvis man har slukket den.
 
 function startSupervisor() {
   if (supervisor) {
@@ -166,14 +111,10 @@ function startSupervisor() {
   supervisor = new WallSupervisor({
     settings: wallSettings,
     onChange: (state) => {
-      for (const target of [controlWindow, wakeWindow]) {
-        if (target && !target.isDestroyed()) {
-          target.webContents.send('wall:state', state);
-        }
+      if (controlWindow && !controlWindow.isDestroyed()) {
+        controlWindow.webContents.send('wall:state', state);
       }
     },
-    onSleep: () => showWakeWindow(),
-    onWake: () => hideWakeWindow(),
   });
   supervisor.start();
   return supervisor;
@@ -457,12 +398,6 @@ function registerIpcHandlers() {
     supervisor?.updateSettings(wallSettings);
     return wallSettings;
   });
-  ipcMain.handle('wall:wake', () => {
-    supervisor?.setForcedOff(false);
-    supervisor?.registerTouch();
-    hideWakeWindow();
-    return true;
-  });
   // Knapperne i indstillingerne skal kunne tvinge skærmen af og til,
   // uden at det ændrer den gemte tidsplan.
   ipcMain.handle('wall:screen', (_event, value) => {
@@ -470,11 +405,9 @@ function registerIpcHandlers() {
     if (value?.on === true) {
       supervisor.setForcedOff(false);
       supervisor.registerTouch();
-      hideWakeWindow();
       return true;
     }
     supervisor.setForcedOff(true);
-    showWakeWindow();
     return true;
   });
 }
@@ -487,7 +420,6 @@ async function start() {
   registerIpcHandlers();
   createMainWindow();
   createHandleWindow();
-  createWakeWindow();
   // Skærmen må ikke gå i søvn på egen hånd. Hvor længe den lyser, styres
   // af vægindstillingerne i stedet for af en fast blokering.
   powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');

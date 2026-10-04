@@ -1,7 +1,11 @@
 'use strict';
 
 const DEFAULTS = Object.freeze({
-  mode: 'schedule',
+  // Skærmen er som udgangspunkt altid tændt. Væk-overlay'et ("Tryk for at
+  // vække") er taget væk, fordi det ikke reagerede på Surface'en, så når
+  // man lægger en tidsplan ind, slukker skærmen helt og tændes kun via
+  // indstillingsvinduet eller bevægelse fra kameraet.
+  mode: 'always',
   schedule: { enabled: true, from: '06:30', to: '22:30', days: [0, 1, 2, 3, 4, 5, 6] },
   presence: {
     enabled: true,

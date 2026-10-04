@@ -15,7 +15,6 @@ if (isLocalUi) {
     quit: () => ipcRenderer.invoke('client:quit'),
     getWall: () => ipcRenderer.invoke('wall:get'),
     saveWall: (value) => ipcRenderer.invoke('wall:save', value),
-    wake: () => ipcRenderer.invoke('wall:wake'),
     setScreen: (value) => ipcRenderer.invoke('wall:screen', value),
     subscribeWall: (callback) => {
       const listener = (_event, state) => callback(state);
