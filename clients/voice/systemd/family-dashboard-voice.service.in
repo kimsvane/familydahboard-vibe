@@ -1,0 +1,25 @@
+[Unit]
+Description=Family Dashboard Voice (Home Assistant Assist Satellite)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__PREFIX__/app
+Environment=PATH=__PREFIX__/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=XDG_RUNTIME_DIR=/run/user/__UID__
+Environment=PULSE_SERVER=unix:/run/user/__UID__/pulse/native
+Environment=PREFERENCES_FILE=__DATA_DIR__/preferences.json
+Environment=WAKE_WORD_DIR=__PREFIX__/app/wakewords
+EnvironmentFile=/etc/family-dashboard-voice.env
+ExecStart=__PREFIX__/app/docker-entrypoint.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
