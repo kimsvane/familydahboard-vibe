@@ -438,6 +438,23 @@ function localDateKey(value) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+/// Den lille ugedag oven over tiden skal aldrig skubbe til titlen.
+/// Skriftstoerrelsen trappes derfor op efter laengden paa tidsteksten,
+/// saa dag-navnet passer til den kolonnebrede tiden selv laver: er der
+/// plads nok (fx "Hele dagen"), kan ugedagen blive stoerre.
+function dagslinjeDagSkala(tidLaengde) {
+  if (tidLaengde >= 11) return "stor";
+  if (tidLaengde >= 8) return "mellem";
+  if (tidLaengde >= 5) return "lille";
+  return "";
+}
+
+function weekdayForEvent(event) {
+  const key = eventDateKey(event);
+  if (!key) return "";
+  return formatDate(key, { weekday: "long" });
+}
+
 function renderForsideEvents(events) {
   const target = $("#forside-events");
   if (!events.length) {
@@ -447,8 +464,13 @@ function renderForsideEvents(events) {
   target.innerHTML = events.map((event) => {
     const started = !event.all_day && event.start_at && new Date(event.start_at).getTime() <= Date.now();
     const color = escapeHtml(event.source_color || "#5c7cfa");
+    const tid = event.all_day ? "Hele dagen" : event.local_start_time || formatTime(event.start_at);
+    const skala = dagslinjeDagSkala(tid.length);
     return `<div class="dagslinje">
-      <span class="dagslinje__tid">${escapeHtml(event.all_day ? "Hele dagen" : event.local_start_time || formatTime(event.start_at))}</span>
+      <span class="dagslinje__hvornaar">
+        <span class="dagslinje__dag${skala ? ` dagslinje__dag--${skala}` : ""}">${escapeHtml(weekdayForEvent(event))}</span>
+        <span class="dagslinje__tid">${escapeHtml(tid)}</span>
+      </span>
       <span class="dagslinje__strek" style="background:${color}"></span>
       <span class="dagslinje__titel">${escapeHtml(event.title)}</span>
       ${started ? `<span class="dagslinje__tag">igang</span>` : ""}

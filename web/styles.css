@@ -662,7 +662,16 @@ body.paa-forside .nav-button { min-height: 34px; font-size: 0.76rem; }
 .forside-bottom { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: clamp(10px, 1.1vw, 20px); flex: 1 1 auto; min-height: 0; }
 .forside-events { display: flex; flex-direction: column; justify-content: center; gap: clamp(4px, 0.55vw, 12px); min-height: 0; overflow: hidden; }
 .dagslinje { display: grid; grid-template-columns: auto 6px minmax(0, 1fr) auto; align-items: center; column-gap: clamp(8px, 0.8vw, 16px); }
-.dagslinje__tid { color: var(--accent); font-size: var(--fs-mellem); font-variant-numeric: tabular-nums; font-weight: 850; }
+.dagslinje__hvornaar { display: flex; flex-direction: column; align-items: flex-start; }
+/* Ugedagen sidder lille hen over tiden og holder sig til den kolonne,
+   tiden selv breder sig til. Skalaen trappes op i dagslinjeDagSkala i
+   app.js, saa et langt klokkeslaet giver plads til en stoerre ugedag,
+   mens noget saa kort som en starttid holder den nede. */
+.dagslinje__dag { --dag-skala: 0.5; color: var(--faint); font-size: calc(var(--fs-mellem) * var(--dag-skala)); font-weight: 800; line-height: 1.05; letter-spacing: 0.02em; text-transform: capitalize; white-space: nowrap; }
+.dagslinje__dag--lille { --dag-skala: 0.65; }
+.dagslinje__dag--mellem { --dag-skala: 0.8; }
+.dagslinje__dag--stor { --dag-skala: 0.95; }
+.dagslinje__tid { color: var(--accent); font-size: var(--fs-mellem); font-variant-numeric: tabular-nums; font-weight: 850; line-height: 1.05; }
 .dagslinje__strek { align-self: stretch; min-height: 1.1em; border-radius: 3px; }
 .dagslinje__titel { overflow: hidden; font-size: var(--fs-mellem); font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 .dagslinje__tag { padding: 2px 8px; border-radius: 999px; color: var(--green); background: var(--tag-bg); font-size: var(--fs-lille); font-weight: 850; text-transform: uppercase; }

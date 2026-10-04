@@ -103,7 +103,8 @@ vm.runInContext(source, context, { filename: "app.js" });
 
 const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature, themeForNow, clockMinutes,
   renderForsideHints, renderReminderSourceOptions, reminderSourceLabel, reminderMatchLabel,
-  genindlaesAlt, handleDetections, pollCameras, renderForsideBirthday, fejltekst } = context;
+  genindlaesAlt, handleDetections, pollCameras, renderForsideBirthday, fejltekst,
+  renderForsideEvents, dagslinjeDagSkala } = context;
 
 let bestævrelser = 0;
 // Enkelte tjek er asynkrone, så de skal vente. De køres i rækkefølge og
@@ -610,6 +611,46 @@ tjek("et fodselsdagsnavn med HTML escapes stadig faar kageikon", () => {
   } finally {
     context.document.querySelector = gemt;
   }
+});
+
+/* ================= Forside-aftaler med ugedag ================= */
+
+function medForsideEventKør(events, kør) {
+  const fanget = { innerHTML: "" };
+  const gemt = context.document.querySelector;
+  context.document.querySelector = (vælger) => (vælger === "#forside-events" ? fanget : noopElement);
+  try { renderForsideEvents(events); kør(fanget); } finally { context.document.querySelector = gemt; }
+}
+
+tjek("forside-aftalen viser ugedagen lille hen over tiden", () => {
+  // 2026-10-05 er en mandag.
+  medForsideEventKør([{ id: "1", title: "Møde", start_at: "2026-10-05T14:00:00+02:00", source_kind: "calendar", local_start_time: "14:00" }], (mål) => {
+    assert.ok(mål.innerHTML.includes("dagslinje__hvornaar"), "ugedag og tid skal stå i samme kolonne");
+    assert.ok(mål.innerHTML.includes(">mandag<"), "ugedagens navn skal stå foran tiden med lille skrift");
+    assert.ok(mål.innerHTML.includes(">14:00<"), "tiden skal stadig være der");
+    assert.ok(mål.innerHTML.includes("Møde"), "titel skal stadig være der");
+  });
+});
+
+tjek("dag-navnets skala følger længden på tiden", () => {
+  assert.equal(dagslinjeDagSkala(4), "");
+  assert.equal(dagslinjeDagSkala(6), "lille");
+  assert.equal(dagslinjeDagSkala(10), "mellem");
+  assert.equal(dagslinjeDagSkala(12), "stor");
+});
+
+tjek("heldagsaftale viser 'Hele dagen' og en stoerre ugedag", () => {
+  medForsideEventKør([{ id: "1", title: "Udflugt", all_day: true, local_date: "2026-10-04", source_kind: "calendar" }], (mål) => {
+    assert.ok(mål.innerHTML.includes("Hele dagen"), "heldagsaftalen skal vise 'Hele dagen'");
+    assert.ok(mål.innerHTML.includes("dagslinje__dag--mellem"), "lang tid skal give ugedagen mellem-skala");
+  });
+});
+
+tjek("uvedkommende HTML i aftalens titel escapes", () => {
+  medForsideEventKør([{ id: "1", title: "<script>x</script>", start_at: "2026-10-05T14:00:00+02:00", source_kind: "calendar", local_start_time: "14:30" }], (mål) => {
+    assert.ok(!mål.innerHTML.includes("<script>"), "titel med HTML maa ikke ramme vaeggen");
+    assert.ok(mål.innerHTML.includes("&lt;script&gt;"), "titel skal escapes");
+  });
 });
 
 tjek("et kamera med popup fra springer ikke poppen over", () => {
