@@ -24,6 +24,7 @@ let retryTimer = null;
 let isQuitting = false;
 let supervisor = null;
 let powerSaveBlockerId = null;
+let displayBlockerId = null;
 let cameraPresence = null;
 
 app.setName('family-dashboard-kiosk');
@@ -420,9 +421,12 @@ async function start() {
   registerIpcHandlers();
   createMainWindow();
   createHandleWindow();
-  // Skærmen må ikke gå i søvn på egen hånd. Hvor længe den lyser, styres
-  // af vægindstillingerne i stedet for af en fast blokering.
+  // Skærmen må ALDRIG slukke eller dæmpes af operativsystemets inaktivitet.
+  // Kun appen selv slukker/tænder på skærmen: "Sluk nu"-knappen, bevægelse
+  // eller indstillingerne (f.eks. dvale og tidsplan). Derfor reserveres både
+  // system-suspension og display-idle, så PowerDevil/KDE aldrig blanker.
   powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+  displayBlockerId = powerSaveBlocker.start('prevent-display-sleep');
   startSupervisor();
   screen.on('display-metrics-changed', positionHandle);
   if (settings) {
@@ -448,9 +452,13 @@ if (!app.requestSingleInstanceLock()) {
     stopCameraBridge();
     supervisor?.stop();
     supervisor = null;
-    if (powerBlockerId !== null) {
-      powerSaveBlocker.stop(powerBlockerId);
-      powerBlockerId = null;
+    if (powerSaveBlockerId !== null) {
+      powerSaveBlocker.stop(powerSaveBlockerId);
+      powerSaveBlockerId = null;
+    }
+    if (displayBlockerId !== null) {
+      powerSaveBlocker.stop(displayBlockerId);
+      displayBlockerId = null;
     }
   });
   app.on('window-all-closed', () => app.quit());

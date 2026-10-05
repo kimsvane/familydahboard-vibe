@@ -1,6 +1,6 @@
 {
   "name": "family-dashboard-kiosk",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Fuldsk\u00e6rmsklient til Family Dashboard p\u00e5 en dedikeret Linux-enhed",
   "homepage": "https://github.com/kimsvane/familydahboard-vibe",
