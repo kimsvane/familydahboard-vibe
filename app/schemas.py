@@ -182,6 +182,8 @@ class SettingsUpdate(Model):
     notes_imap_app_password: Optional[str] = Field(default=None, max_length=200)
     notes_imap_host: Optional[str] = Field(default=None, max_length=200)
     notes_imap_note_title: Optional[str] = Field(default=None, max_length=200)
+    aula_enabled: Optional[bool] = None
+    aula_sync_minutes: Optional[int] = Field(default=None, ge=1, le=240)
     reolink_poll_seconds: Optional[int] = Field(default=None, ge=2, le=60)
     reolink_close_delay: Optional[int] = Field(default=None, ge=0, le=60)
     reolink_live_delay: Optional[int] = Field(default=None, ge=0, le=60)

@@ -65,6 +65,7 @@
       <button class="nav-button" data-view="today" type="button">I dag</button>
       <button class="nav-button" data-view="calendar" type="button">Kalender</button>
       <button class="nav-button" data-view="school" type="button">Skoleskema</button>
+      <button class="nav-button" data-view="aula" type="button">Aula</button>
       <button class="nav-button" data-view="birthdays" type="button">Fødselsdage</button>
       <button class="nav-button" data-view="widgets" type="button">Widgets</button>
       <button class="nav-button" data-view="cameras" type="button">Kameraer</button>
@@ -217,8 +218,78 @@
         <div id="school-source-list" class="school-source-list"></div>
       </section>
 
-      <section id="view-birthdays" class="view" data-view-panel="birthdays">
+      <section id="view-aula" class="view" data-view-panel="aula">
         <div class="section-heading">
+          <div><p class="eyebrow">Beskeder, opslag og kalender</p><h1>Aula</h1></div>
+          <div class="section-actions">
+            <button class="button secondary" id="aula-sync" type="button">Opdater nu</button>
+          </div>
+        </div>
+
+        <div id="aula-setup" class="panel" hidden>
+          <div class="panel-heading">
+            <div><p class="eyebrow">Første gang</p><h2>Log ind på Aula</h2></div>
+          </div>
+          <p class="section-copy">
+            Aula kræver et MitID-login. Tryk på <strong>Start login</strong>, godkend på din
+            telefon, og indsæt så koden fra adressen, du lander på, herunder. Der er kun ét
+            login, og det gemmes i dashboardet, så det kun skal gøres en gang.
+          </p>
+          <div class="section-actions">
+            <button class="button primary" id="aula-login-start" type="button">Start login</button>
+            <span class="muted" id="aula-login-hint"></span>
+          </div>
+          <div id="aula-code-fields" hidden>
+            <label class="field-label" for="aula-login-code">Kode fra Aula</label>
+            <input class="text-input" id="aula-login-code" type="text" autocomplete="off" spellcheck="false" placeholder="Indsæt hele koden">
+            <label class="field-label" for="aula-login-state">State (hvis den vises)</label>
+            <input class="text-input" id="aula-login-state" type="text" autocomplete="off" spellcheck="false" placeholder="valgfri">
+            <button class="button primary" id="aula-login-complete" type="button">Færdig login</button>
+            <p class="muted small-copy" id="aula-login-error"></p>
+          </div>
+        </div>
+
+        <div class="calendar-toolbar panel">
+          <div class="aula-tabs" role="tablist">
+            <button class="aula-tab active" data-aula-tab="messages" type="button">Beskeder</button>
+            <button class="aula-tab" data-aula-tab="posts" type="button">Opslag</button>
+            <button class="aula-tab" data-aula-tab="calendar" type="button">Kalender</button>
+          </div>
+          <span class="toolbar-spacer"></span>
+          <span class="muted" id="aula-status">—</span>
+        </div>
+
+        <div class="calendar-toolbar panel">
+          <input class="text-input" id="aula-search" type="search" placeholder="Søg i Aula" aria-label="Søg i Aula">
+          <select class="text-input" id="aula-child-filter" aria-label="Filter på barn"><option value="alle">Alle børn</option></select>
+          <select class="text-input" id="aula-state-filter" aria-label="Filter på læst og stjerne">
+            <option value="alle">Alle</option>
+            <option value="ulast">Ulæste</option>
+            <option value="stjernet">Stjernede</option>
+            <option value="lest">Læste</option>
+          </select>
+          <span class="toolbar-spacer"></span>
+          <span class="muted small-copy" id="aula-count">0</span>
+        </div>
+
+        <div id="aula-messages-panel" class="aula-panel" data-aula-panel="messages">
+          <div id="aula-thread-list" class="aula-list"></div>
+        </div>
+
+        <div id="aula-posts-panel" class="aula-panel" data-aula-panel="posts" hidden>
+          <div id="aula-post-list" class="aula-list"></div>
+        </div>
+
+        <div id="aula-calendar-panel" class="aula-panel" data-aula-panel="calendar" hidden>
+          <div id="aula-calendar-list" class="aula-list"></div>
+          <p class="muted small-copy" id="aula-calendar-fallback-note" hidden>
+            Aula-kalenderen kunne ikke hentes lige nu, så skemaet nederst kommer fra din
+            eksisterende Aula-abonnement i Skoleskema.
+          </p>
+        </div>
+      </section>
+
+      <section id="view-birthdays" class="view" data-view-panel="birthdays">        <div class="section-heading">
           <div><p class="eyebrow">Det skal markeres</p><h1>Fødselsdage</h1></div>
           <button class="button primary" id="add-birthday-button" type="button">Tilføj fødselsdag</button>
         </div>
@@ -326,6 +397,16 @@
           <article class="panel settings-card">
             <div class="panel-heading"><div><p class="eyebrow">People</p><h2>Familiemedlemmer</h2></div><button class="button secondary compact" id="add-member-button" type="button">Tilføj</button></div>
             <div id="member-settings-list" class="settings-list"></div>
+          </article>
+          <article class="panel settings-card wide">
+            <div class="panel-heading"><div><p class="eyebrow">Aula</p><h2>Beskeder og opslag fra Aula</h2></div><span class="status-badge" id="aula-settings-status">Ikke logt ind</span></div>
+            <p class="section-copy">Aula er logt ind med MitID, så dashboardet kan hente beskeder, opslag og kalender direkte. Det er det samme login, som Aula-appen bruger, og det laves kun én gang. Skoleskema-siden er uafhængig af dette og bruger dine abonnementer som før.</p>
+            <form id="aula-settings-form" class="stack-form">
+              <label class="check-label"><input type="checkbox" name="aula_enabled"> Hent automatisk fra Aula hver kvartal</label>
+              <div class="form-row"><div><label for="setting-aula-sync-minutes">Hent hvert … minut</label><input id="setting-aula-sync-minutes" name="aula_sync_minutes" type="number" min="1" max="240"></div><div class="section-actions"><button class="button secondary" id="aula-test" type="button">Test forbindelse</button><button class="button secondary" id="aula-logout" type="button">Log ud</button></div></div>
+              <button class="button primary" type="submit">Gem Aula</button>
+              <p class="muted small-copy" id="aula-settings-help"></p>
+            </form>
           </article>
           <article class="panel settings-card wide">
             <div class="panel-heading"><div><p class="eyebrow">Home Assistant</p><h2>Forbind dashboardet</h2></div></div>

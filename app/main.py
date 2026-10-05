@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from .aula import AulaError, AulaSync
 from .config import get_settings
 from .db import Database
 from .icloud_notes import ICloudNotes
@@ -88,6 +89,7 @@ database = Database(
 synchronizer = CalendarSynchronizer(database, settings)
 weather = WeatherService(settings)
 reminders = RemindersSync(database)
+aula = AulaSync(database)
 icloud_notes = ICloudNotes(database)
 camera_monitor = CameraMonitor(database)
 
@@ -95,6 +97,12 @@ SECRET_SETTING_KEYS = {
     "reminders_app_password",
     "notes_imap_app_password",
     "reminders_bridge_token",
+    "aula_access_token",
+    "aula_refresh_token",
+    "aula_csrf_token",
+    "aula_session_cookie",
+    "aula_login_verifier",
+    "aula_login_state",
 }
 
 
@@ -127,6 +135,9 @@ def public_settings(raw: dict[str, Any]) -> dict[str, Any]:
     )
     for key in SECRET_SETTING_KEYS:
         public[key] = ""
+    # Aula-loginnet er gemt i settings, så klienten skal kun se om det virker.
+    public["aula_configured"] = aula.configured()
+    public["aula_login_pending"] = bool(raw.get("aula_login_verifier"))
     return public
 
 
@@ -200,6 +211,7 @@ async def lifespan(_: FastAPI):
     if settings.background_sync:
         start(synchronizer.run_periodically(stop_event))
     start(reminders.run_periodically(stop_event))
+    start(aula.run_periodically(stop_event))
     start(camera_monitor.run(stop_event))
     yield
     stop_event.set()
@@ -927,6 +939,90 @@ async def icloud_note() -> dict[str, Any]:
 @app.post("/api/notes/icloud/save", dependencies=[Depends(require_auth)])
 async def save_icloud_note(payload: NotesIcloudSaveRequest) -> dict[str, Any]:
     return await icloud_notes.save(payload.content)
+
+
+@app.get("/api/aula", dependencies=[Depends(require_auth)])
+async def aula_overview() -> dict[str, Any]:
+    """Alt Aula-siden skal bruge i ét kald, så skærmen kun henter én gang."""
+    threads = database.list_aula_threads()
+    return {
+        "configured": aula.configured(),
+        "enabled": aula.enabled(),
+        "children": database.list_aula_profiles(),
+        "threads": threads,
+        "posts": database.list_aula_posts(),
+        "events": database.list_aula_events(),
+        "unread_threads": sum(1 for thread in threads if thread["is_unread"]),
+        "unread_posts": sum(
+            1 for post in database.list_aula_posts() if post["is_unread"]
+        ),
+        "last_sync": database.get_setting("aula_last_sync", ""),
+        "last_error": database.get_setting("aula_last_error", ""),
+    }
+
+
+@app.get("/api/aula/threads/{thread_id}/messages", dependencies=[Depends(require_auth)])
+async def aula_thread_messages(thread_id: str) -> dict[str, Any]:
+    return {"messages": database.list_aula_messages(thread_id)}
+
+
+@app.post("/api/aula/login/start", dependencies=[Depends(require_auth)])
+async def aula_login_start(scope: str = "aula") -> dict[str, Any]:
+    """Laver et PKCE-link, som brugeren åbner på sin telefon med MitID."""
+    try:
+        return await aula.login_url(scope)
+    except AulaError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/aula/login/complete", dependencies=[Depends(require_auth)])
+async def aula_login_complete(payload: dict[str, Any]) -> dict[str, Any]:
+    """Bytter koden fra MitID-login'et til tokens og henter data med det samme."""
+    try:
+        return await aula.complete_login(
+            str(payload.get("code") or ""), str(payload.get("state") or "")
+        )
+    except AulaError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/aula/logout", dependencies=[Depends(require_auth)])
+async def aula_logout() -> dict[str, Any]:
+    return await aula.logout()
+
+
+@app.post("/api/aula/sync", dependencies=[Depends(require_auth)])
+async def aula_sync(payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """Synkroniserer nu. Kalenderfejl må ikke tage beskeder og opslag med."""
+    values = payload or {}
+    result = await aula.sync(
+        child_ids=values.get("child_ids") or None,
+        with_messages=bool(values.get("messages", True)),
+        with_posts=bool(values.get("posts", True)),
+        with_calendar=bool(values.get("calendar", True)),
+    )
+    return result
+
+
+@app.post("/api/aula/test", dependencies=[Depends(require_auth)])
+async def aula_test() -> dict[str, Any]:
+    return await aula.test_connection()
+
+
+@app.post("/api/aula/{kind}/{item_id}/star", dependencies=[Depends(require_auth)])
+async def aula_star(kind: str, item_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return aula.set_starred(kind, item_id, bool(payload.get("starred", True)))
+    except AulaError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/aula/{kind}/{item_id}/read", dependencies=[Depends(require_auth)])
+async def aula_read(kind: str, item_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return aula.set_read(kind, item_id, bool(payload.get("read", True)))
+    except AulaError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 if settings.static_dir.exists():

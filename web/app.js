@@ -40,6 +40,11 @@ const state = {
   customCss: "",
   layoutDirty: false,
   selectedCard: null,
+  aula: null,
+  aulaTab: "messages",
+  aulaMessages: {},
+  aulaOpenThread: "",
+  aulaSchoolFallback: [],
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -1107,8 +1112,19 @@ function renderSettings(summary) {
       : "Brug et app-specifikt password oprettet på appleid.apple.com (kræver to-faktor-login) og kopiér det præcist, uden mellemrum.";
     $("#reminders-help").innerHTML = `Sidste fejl: <span class="error-text">${escapeHtml(settings.reminders_last_error)}</span><br>${hint}`;
   }
-  const notesForm = $("#icloud-notes-form");
-  notesForm.elements.notes_imap_enabled.checked = settings.notes_imap_enabled === true || settings.notes_imap_enabled === "true";
+  const aulaForm = $("#aula-settings-form");
+  aulaForm.elements.aula_enabled.checked = settings.aula_enabled === true || settings.aula_enabled === "true";
+  aulaForm.elements.aula_sync_minutes.value = settings.aula_sync_minutes || "15";
+  const aulaBadge = $("#aula-settings-status");
+  aulaBadge.textContent = settings.aula_configured ? "Logt ind" : "Ikke logt ind";
+  aulaBadge.classList.toggle("ok", !!settings.aula_configured);
+  aulaBadge.classList.toggle("error", !settings.aula_configured);
+  $("#aula-logout").disabled = !settings.aula_configured;
+  $("#aula-settings-help").textContent = settings.aula_last_error
+    ? `Sidste fejl: ${settings.aula_last_error}`
+    : (settings.aula_last_sync ? `Sidst opdateret ${formatShortDate(settings.aula_last_sync)} ${formatTime(settings.aula_last_sync)}.` : "Endnu ikke hentet fra Aula.");
+
+  const notesForm = $("#icloud-notes-form");  notesForm.elements.notes_imap_enabled.checked = settings.notes_imap_enabled === true || settings.notes_imap_enabled === "true";
   notesForm.elements.notes_imap_username.value = settings.notes_imap_username || "";
   notesForm.elements.notes_imap_host.value = settings.notes_imap_host || "imap.mail.me.com";
   notesForm.elements.notes_imap_note_title.value = settings.notes_imap_note_title || "";
@@ -1573,6 +1589,7 @@ function showView(view) {
   available.forEach((panel) => panel.classList.toggle("active", panel.dataset.viewPanel === target));
   if (target === "calendar") loadCalendarEvents();
   if (target === "school") loadSchoolEvents();
+  if (target === "aula") loadAula();
   if (target === "cameras") loadCameras(true);
   // Huskelinjerne laes ved hvert besog i indstillingerne, saa en regel
   // tilfojet i en anden fane eller et kaldt reload ikke viser en gammel
@@ -1737,6 +1754,339 @@ function selectSchoolWeek(offset) {
   loadSchoolEvents();
 }
 
+/* ---------- Aula ----------
+   Beskeder, opslag og kalender kommer fra Aula's eget API og er cachet på
+   serveren. Skoleskema-siden ovenfor røres ikke ved: Aula-kalenderen her er
+   et ekstra lag ovenpå, og hvis den fejler, falder vi tilbage på
+   skoleabonnementerne i stedet for at vise en tom side. */
+
+async function loadAula() {
+  try {
+    state.aula = await api("/api/aula");
+  } catch (error) {
+    showToast(error.message, true);
+    return;
+  }
+  state.aulaMessages = {};
+  state.aulaOpenThread = "";
+  renderAulaSetup();
+  renderAulaChildFilter();
+  renderAula();
+  if (state.aulaTab === "calendar" && !(state.aula.events || []).length) loadAulaSchoolFallback();
+}
+
+function renderAulaSetup() {
+  const data = state.aula || {};
+  const loggedIn = Boolean(data.configured);
+  const pending = Boolean(state.settings?.aula_login_pending);
+  $("#aula-setup").hidden = loggedIn;
+  $("#aula-login-hint").textContent = pending ? "Et login er i gang. Afslut det med koden fra Aula." : "";
+  if (!loggedIn) $("#aula-code-fields").hidden = !pending;
+  $("#aula-status").textContent = aulaStatusText();
+}
+
+function aulaStatusText() {
+  const data = state.aula || {};
+  if (!data.configured) return "Ikke logt ind på Aula";
+  if (data.last_error) return `Sidste fejl: ${data.last_error}`;
+  const ulæst = (data.unread_threads || 0) + (data.unread_posts || 0);
+  const synced = data.last_sync ? `Opdateret ${formatShortDate(data.last_sync)} ${formatTime(data.last_sync)}` : "Endnu ikke opdateret";
+  return ulæst ? `${ulæst} ulæste · ${synced}` : synced;
+}
+
+function renderAulaChildFilter() {
+  const select = $("#aula-child-filter");
+  const current = select.value || "alle";
+  const children = (state.aula?.children || []).map((child) => ({ id: child.profile_id, name: child.name }));
+  select.innerHTML = `<option value="alle">Alle børn</option>${children.map((child) => `<option value="${escapeHtml(child.id)}">${escapeHtml(child.name)}</option>`).join("")}`;
+  select.value = children.some((child) => String(child.id) === String(current)) ? current : "alle";
+  select.hidden = !children.length;
+}
+
+function aulaChild() {
+  const value = $("#aula-child-filter").value;
+  if (value === "alle") return null;
+  return (state.aula?.children || []).find((child) => String(child.profile_id) === String(value)) || null;
+}
+
+/* Aula's API giver ikke os en ren "hvem er dette til"-markering på
+   beskeder. Vi bruger derfor de felter, der findes: deltagere på beskeder,
+   målgruppe på opslag og profil-id på kalenderposter. Mangler feltet,
+   viser vi emnet for alle børn, fordi det så typisk gælder hele klassen. */
+function aulaMatchesChild(item, child) {
+  if (!child) return true;
+  const name = String(child.name || "").toLowerCase();
+  const ids = (item.profile_ids || []).map(String);
+  if (ids.length) return ids.includes(String(child.profile_id));
+  const tags = [...(item.audience || []), ...(item.tags || []), ...(item.participants || [])].map((value) => String(value).toLowerCase());
+  if (!tags.length) return true;
+  return tags.some((value) => value.includes(name));
+}
+
+function aulaMatchesState(item, wanted) {
+  if (wanted === "ulast") return item.is_unread;
+  if (wanted === "stjernet") return item.starred;
+  if (wanted === "lest") return !item.is_unread;
+  return true;
+}
+
+function aulaMatchesSearch(item, term) {
+  if (!term) return true;
+  const haystack = [item.subject, item.title, item.sender, item.author, item.body, ...(item.participants || []), ...(item.audience || [])]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(term);
+}
+
+function aulaFilter(rows) {
+  const term = String($("#aula-search").value || "").trim().toLowerCase();
+  const wanted = $("#aula-state-filter").value;
+  const child = aulaChild();
+  return rows.filter((row) => aulaMatchesChild(row, child) && aulaMatchesState(row, wanted) && aulaMatchesSearch(row, term));
+}
+
+function aulaStarButton(kind, id, starred, label) {
+  return `<button class="aula-star${starred ? " active" : ""}" type="button" data-aula-star="${escapeHtml(kind)}" data-aula-id="${escapeHtml(id)}" aria-pressed="${starred ? "true" : "false"}" title="${starred ? "Fjern stjerne" : "Sæt stjerne"}" aria-label="${escapeHtml(`${starred ? "Fjern stjerne fra" : "Sæt stjerne på"} ${label}`)}">${starred ? "★" : "☆"}</button>`;
+}
+
+function aulaUnreadBadge(item) {
+  return item.is_unread ? `<span class="aula-badge">Ny</span>` : "";
+}
+
+function renderAula() {
+  const data = state.aula;
+  if (!data) return;
+  $$(".aula-tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.aulaTab === state.aulaTab));
+  $$("[data-aula-panel]").forEach((panel) => { panel.hidden = panel.dataset.aulaPanel !== state.aulaTab; });
+  $("#aula-status").textContent = aulaStatusText();
+
+  const child = aulaChild();
+  if (state.aulaTab === "messages") {
+    const rows = aulaFilter(data.threads || []);
+    $("#aula-count").textContent = `${rows.length} beskedtråde`;
+    $("#aula-thread-list").innerHTML = rows.length
+      ? rows.map((thread) => aulaThreadItem(thread)).join("")
+      : aulaEmptyState("Der er ingen beskeder, der matcher filteret.");
+  } else if (state.aulaTab === "posts") {
+    const rows = aulaFilter(data.posts || []);
+    $("#aula-count").textContent = `${rows.length} opslag`;
+    $("#aula-post-list").innerHTML = rows.length
+      ? rows.map((post) => aulaPostItem(post)).join("")
+      : aulaEmptyState("Der er ingen opslag, der matcher filteret.");
+  } else {
+    const rows = aulaFilter([...(data.events || []), ...state.aulaSchoolFallback.map(aulaFallbackEvent)]);
+    $("#aula-count").textContent = `${rows.length} kalenderposter`;
+    $("#aula-calendar-list").innerHTML = rows.length
+      ? rows.map((event) => aulaEventItem(event, child)).join("")
+      : aulaEmptyState("Der er ingen kalenderposter, der matcher filteret.");
+  }
+}
+
+function aulaEmptyState(text) {
+  return `<div class="panel empty-state">${escapeHtml(text)}</div>`;
+}
+
+function aulaThreadItem(thread) {
+  const open = state.aulaOpenThread === thread.thread_id;
+  const messages = state.aulaMessages[thread.thread_id];
+  const participants = (thread.participants || []).filter(Boolean);
+  return `<article class="panel aula-item${thread.is_unread ? " unread" : ""}" data-aula-thread="${escapeHtml(thread.thread_id)}">
+    <div class="aula-item-head">
+      <div>
+        <p class="eyebrow">${escapeHtml(thread.received_at ? formatShortDate(thread.received_at) : "Aula")}</p>
+        <h3>${escapeHtml(thread.subject || "(uden emne)")} ${aulaUnreadBadge(thread)}</h3>
+        <span class="muted small-copy">${escapeHtml([thread.sender, ...participants].filter(Boolean).join(" · ") || "Aula")}</span>
+      </div>
+      <div class="aula-item-actions">
+        ${aulaStarButton("thread", thread.thread_id, thread.starred, thread.subject || "beskedtråd")}
+        <button class="button secondary" type="button" data-aula-open="${escapeHtml(thread.thread_id)}">${open ? "Skjul" : "Åbn"}</button>
+      </div>
+    </div>
+    ${open ? `<div class="aula-messages">${aulaMessagesHtml(thread, messages)}</div>` : ""}
+  </article>`;
+}
+
+function aulaMessagesHtml(thread, messages) {
+  if (!messages) return `<p class="muted small-copy">Indlæser beskeder …</p>`;
+  if (!messages.length) return `<p class="muted small-copy">Aula har ingen beskeder i denne tråd.</p>`;
+  return messages.map((message) => `<div class="aula-message${message.is_from_me ? " own" : ""}"><span class="muted small-copy">${escapeHtml(message.sender || "Aula")} · ${escapeHtml(message.sent_at ? `${formatShortDate(message.sent_at)} ${formatTime(message.sent_at)}` : "")}</span><p>${escapeHtml(message.body || "")}</p></div>`).join("");
+}
+
+function aulaPostItem(post) {
+  return `<article class="panel aula-item${post.is_unread ? " unread" : ""}">
+    <div class="aula-item-head">
+      <div>
+        <p class="eyebrow">${escapeHtml(post.published_at ? formatShortDate(post.published_at) : "Opslag")}</p>
+        <h3>${escapeHtml(post.title || "(uden titel)")} ${aulaUnreadBadge(post)}</h3>
+        <span class="muted small-copy">${escapeHtml([post.author, ...(post.audience || [])].filter(Boolean).join(" · ") || "Aula")}</span>
+      </div>
+      <div class="aula-item-actions">
+        ${aulaStarButton("post", post.post_id, post.starred, post.title || "opslag")}
+        <button class="button secondary" type="button" data-aula-read="post" data-aula-id="${escapeHtml(post.post_id)}" data-aula-value="${post.is_unread ? "false" : "true"}">${post.is_unread ? "Markér læst" : "Markér ulæst"}</button>
+      </div>
+    </div>
+    ${post.body ? `<p class="aula-body">${escapeHtml(post.body)}</p>` : ""}
+  </article>`;
+}
+
+function aulaEventItem(event, child) {
+  const fromFallback = Boolean(event.from_school_fallback);
+  return `<article class="panel aula-item${event.starred ? " starred" : ""}">
+    <div class="aula-item-head">
+      <div>
+        <p class="eyebrow">${escapeHtml(event.start_at ? `${formatShortDate(event.start_at)} ${formatTime(event.start_at)}` : "Aula")}</p>
+        <h3>${escapeHtml(event.title || "(uden titel)")}</h3>
+        <span class="muted small-copy">${escapeHtml([event.location, event.category, child?.name, fromFallback ? "fra skoleabonnement" : ""].filter(Boolean).join(" · "))}</span>
+      </div>
+      <div class="aula-item-actions">
+        ${fromFallback ? "" : aulaStarButton("event", event.event_id, event.starred, event.title || "kalenderpost")}
+      </div>
+    </div>
+    ${event.description ? `<p class="aula-body">${escapeHtml(event.description)}</p>` : ""}
+  </article>`;
+}
+
+/* Når Aula-kalenderen ikke kan hentes, låner vi de skoleabonnementer, der
+   allerede ligger i Skoleskema. De røres ikke, de vises bare også her. */
+function aulaFallbackEvent(event) {
+  return {
+    event_id: `school-${event.id}`,
+    title: event.title,
+    location: event.location || "",
+    category: event.source_name || "Skoleskema",
+    start_at: event.start_at,
+    end_at: event.end_at,
+    description: "",
+    starred: false,
+    profile_ids: [],
+    from_school_fallback: true,
+  };
+}
+
+async function loadAulaSchoolFallback() {
+  const start = new Date();
+  start.setDate(start.getDate() - 7);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 120);
+  try {
+    const result = await api(`/api/events?start=${localDateKey(start)}&end=${localDateKey(end)}&kind=school`);
+    state.aulaSchoolFallback = result.events || [];
+  } catch (error) {
+    state.aulaSchoolFallback = [];
+  }
+  $("#aula-calendar-fallback-note").hidden = !(state.aulaSchoolFallback || []).length;
+  renderAula();
+}
+
+async function syncAula(silent = false) {
+  $("#aula-sync").disabled = true;
+  try {
+    const result = await api("/api/aula/sync", { method: "POST", body: {} });
+    if (!silent) showToast(result.needs_login ? "Aula-sessionen er udløbet. Log ind igen med MitID." : result.synced ? "Aula er opdateret" : `Aula svarede ikke: ${result.reason || result.error || "ukendt fejl"}`, !result.synced);
+    state.settings = { ...state.settings, aula_login_pending: false };
+    await loadAula();
+    await loadSummary(true);
+  } catch (error) {
+    if (!silent) showToast(error.message, true);
+  } finally {
+    $("#aula-sync").disabled = false;
+  }
+}
+
+async function setAulaFlag(kind, id, field, value) {
+  try {
+    await api(`/api/aula/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/${field}`, { method: "POST", body: field === "star" ? { starred: value } : { read: value } });
+  } catch (error) {
+    showToast(error.message, true);
+    return;
+  }
+  // Vi opdaterer kun den ene række i stedet for at hente alt igen. En fuld
+  // genindlæsning ville lukke en tråd, brugeren lige har åbnet.
+  const rækker = kind === "thread" ? state.aula?.threads : kind === "post" ? state.aula?.posts : state.aula?.events;
+  const række = (rækker || []).find((row) => String(row[`${kind}_id`]) === String(id));
+  if (!række) {
+    await loadAula();
+    return;
+  }
+  if (field === "star") {
+    række.starred = value;
+  } else if (value) {
+    række.is_unread = false;
+  } else {
+    række.is_unread = true;
+  }
+  renderAula();
+}
+
+async function openAulaThread(threadId) {
+  if (state.aulaOpenThread === threadId) {
+    state.aulaOpenThread = "";
+    renderAula();
+    return;
+  }
+  state.aulaOpenThread = threadId;
+  renderAula();
+  try {
+    const result = await api(`/api/aula/threads/${encodeURIComponent(threadId)}/messages`);
+    state.aulaMessages[threadId] = result.messages || [];
+  } catch (error) {
+    state.aulaMessages[threadId] = [];
+    showToast(error.message, true);
+  }
+  // En tråd, man lige har læst, skal ikke blive stående som ulæst.
+  await setAulaFlag("thread", threadId, "read", true);
+  renderAula();
+}
+
+async function aulaLoginStart() {
+  $("#aula-login-error").textContent = "";
+  try {
+    const result = await api("/api/aula/login/start?scope=aula", { method: "POST" });
+    state.aulaLoginState = result.state || "";
+    window.open(result.url, "_blank", "noopener");
+    $("#aula-code-fields").hidden = false;
+    $("#aula-login-hint").textContent = "Godkend på din telefon, og indsæt koden fra den adresse, du lander på.";
+    $("#aula-login-code").focus();
+  } catch (error) {
+    $("#aula-login-error").textContent = error.message;
+  }
+}
+
+async function aulaLoginComplete() {
+  const code = $("#aula-login-code").value.trim();
+  const state_ = $("#aula-login-state").value.trim() || state.aulaLoginState || "";
+  if (!code) {
+    $("#aula-login-error").textContent = "Indsæt koden fra Aula først.";
+    return;
+  }
+  $("#aula-login-complete").disabled = true;
+  try {
+    const result = await api("/api/aula/login/complete", { method: "POST", body: { code, state: state_ } });
+    $("#aula-login-code").value = "";
+    $("#aula-login-state").value = "";
+    $("#aula-code-fields").hidden = true;
+    await loadSummary(true);
+    await loadAula();
+    showToast(`Aula er logt ind – ${(result.children || []).length ? result.children.map((child) => child.name).join(", ") : "ingen børn fundet"}`);
+  } catch (error) {
+    $("#aula-login-error").textContent = error.message;
+  } finally {
+    $("#aula-login-complete").disabled = false;
+  }
+}
+
+async function aulaLogout() {
+  try {
+    await api("/api/aula/logout", { method: "POST" });
+    await loadSummary(true);
+    await loadAula();
+    showToast("Aula er logt ud");
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
 function bindEvents() {
   const saveLogLevel = () => {
     const select = $("#setting-log-level");
@@ -1802,6 +2152,26 @@ function bindEvents() {
   $("#settings-add-camera").addEventListener("click", () => openCameraModal());
   $("#cameras-refresh").addEventListener("click", async () => { await loadCameras(false); refreshCameraSnapshots(); showToast("Kameraer opdateret"); });
   $("#icloud-note-edit").addEventListener("click", () => openIcloudNoteModal());
+  $("#aula-settings-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+    values.aula_enabled = values.aula_enabled === "on";
+    values.aula_sync_minutes = Number(values.aula_sync_minutes) || 15;
+    try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); showToast("Aula gemt"); } catch (error) { showToast(error.message, true); }
+  });
+  $("#aula-test").addEventListener("click", async () => {
+    const button = $("#aula-test");
+    button.disabled = true;
+    try {
+      const result = await api("/api/aula/test", { method: "POST" });
+      showToast(result.message, !result.ok);
+    } catch (error) {
+      showToast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $("#aula-logout").addEventListener("click", aulaLogout);
   $("#icloud-reminders-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
@@ -2002,11 +2372,26 @@ function bindEvents() {
   $("#school-prev").addEventListener("click", () => selectSchoolWeek(-1));
   $("#school-next").addEventListener("click", () => selectSchoolWeek(1));
   $("#school-today").addEventListener("click", () => { state.schoolWeekStart = startOfWeek(new Date()); loadSchoolEvents(); });
+  $("#aula-sync").addEventListener("click", () => syncAula());
+  $("#aula-login-start").addEventListener("click", aulaLoginStart);
+  $("#aula-login-complete").addEventListener("click", aulaLoginComplete);
+  $("#aula-search").addEventListener("input", renderAula);
+  $("#aula-child-filter").addEventListener("change", renderAula);
+  $("#aula-state-filter").addEventListener("change", renderAula);
+  $$(".aula-tab").forEach((tab) => tab.addEventListener("click", () => {
+    state.aulaTab = tab.dataset.aulaTab;
+    renderAula();
+    if (state.aulaTab === "calendar" && state.aula && !(state.aula.events || []).length && !state.aulaSchoolFallback.length) loadAulaSchoolFallback();
+  }));
   $("#calendar-grid").addEventListener("click", (event) => { const day = event.target.closest("[data-date]"); if (day) { state.selectedDate = parseDateKey(day.dataset.date); renderCalendar(); } });
   document.addEventListener("click", async (event) => {
     const target = event.target.closest("button, [data-view-link]");
     if (!target) return;
     if (target.dataset.viewLink) { showView(target.dataset.viewLink); return; }
+    if (target.dataset.aulaTab !== undefined) { state.aulaTab = target.dataset.aulaTab; renderAula(); return; }
+    if (target.dataset.aulaOpen) openAulaThread(target.dataset.aulaOpen);
+    if (target.dataset.aulaStar) setAulaFlag(target.dataset.aulaStar, target.dataset.aulaId, "star", target.classList.contains("active") ? false : true);
+    if (target.dataset.aulaRead) setAulaFlag(target.dataset.aulaRead, target.dataset.aulaId, "read", target.dataset.aulaValue === "true");
     if (target.dataset.editSource) openCalendarModal(findResource("source", target.dataset.editSource));
     if (target.dataset.deleteSource) deleteResource(`/api/calendars/${target.dataset.deleteSource}`, " Vil du fjerne denne kalender?");
     if (target.dataset.syncSource) synchroniseSingle(target.dataset.syncSource);

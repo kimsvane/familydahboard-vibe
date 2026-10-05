@@ -341,6 +341,29 @@ input:hover, textarea:hover, select:hover { border-color: var(--field-line-hover
 .school-event small { overflow: hidden; margin-top: 4px; color: var(--muted); font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
 .school-empty { display: grid; min-height: 80px; place-items: center; color: var(--faint); font-size: 0.72rem; }
 
+/* Aula: beskeder, opslag og kalender. Ulæste emner får en tydelig kant, så
+   de kan findes på afstand på væggskærmen, og stjerner overlever synk. */
+.aula-tabs { display: flex; gap: 6px; }
+.aula-tab { min-height: 34px; padding: 0 13px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: 0.78rem; font-weight: 800; cursor: pointer; }
+.aula-tab.active { border-color: rgba(92, 124, 250, 0.45); background: rgba(92, 124, 250, 0.18); color: var(--text); }
+.aula-list { display: grid; gap: 12px; margin-top: 14px; }
+.aula-item { padding: 18px 20px; border-left: 3px solid var(--line); }
+.aula-item.unread { border-left-color: var(--accent); background: rgba(92, 124, 250, 0.1); }
+.aula-item.starred { border-left-color: var(--amber, #f5c76b); }
+.aula-item-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.aula-item-head > div:first-child { min-width: 0; }
+.aula-item-head h3 { margin-top: 4px; font-size: 1rem; overflow-wrap: anywhere; }
+.aula-item-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.aula-badge { display: inline-block; padding: 2px 7px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 0.6rem; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; vertical-align: middle; }
+.aula-star { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--muted); font-size: 1.05rem; line-height: 1; cursor: pointer; }
+.aula-star.active { border-color: rgba(245, 199, 107, 0.5); color: #f5c76b; }
+.aula-body { margin-top: 10px; color: var(--muted); font-size: 0.82rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.aula-messages { display: grid; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.aula-message { padding: 11px 13px; border-radius: 11px; background: rgba(7, 14, 30, 0.32); }
+.aula-message.own { border-left: 3px solid var(--green); }
+.aula-message p { margin-top: 5px; font-size: 0.82rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+#aula-code-fields { display: grid; gap: 8px; margin-top: 16px; }
+
 .birthday-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 14px; }
 .birthday-card { position: relative; min-height: 190px; padding: 23px; overflow: hidden; }
 .birthday-card::after { position: absolute; right: -35px; bottom: -55px; width: 150px; height: 150px; border: 1px solid currentColor; border-radius: 50%; opacity: 0.13; content: ""; }

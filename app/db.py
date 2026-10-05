@@ -43,6 +43,20 @@ DEFAULT_SETTINGS = {
     "reolink_poll_seconds": "5",
     "reolink_close_delay": "0",
     "reolink_live_delay": "3",
+    # Aula. Adgangstokens er hemmeligheder og skjules i settings-svaret.
+    "aula_enabled": "false",
+    "aula_access_token": "",
+    "aula_refresh_token": "",
+    "aula_token_expires": "",
+    "aula_csrf_token": "",
+    "aula_session_cookie": "",
+    "aula_login_verifier": "",
+    "aula_login_state": "",
+    "aula_login_scope": "",
+    "aula_login_expires": "",
+    "aula_sync_minutes": "15",
+    "aula_last_sync": "",
+    "aula_last_error": "",
 }
 
 
@@ -180,6 +194,67 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS event_reminders_kind_idx
                     ON event_reminders(source_kind, enabled);
+                -- Aula. Beskeder og opslag er kun lokalt cache: de hentes fra
+                -- Aula ved hver synkronisering, så stjerner og læst-markering
+                -- er det eneste vi selv ejer.
+                CREATE TABLE IF NOT EXISTS aula_profiles (
+                    profile_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    institution TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS aula_threads (
+                    thread_id TEXT PRIMARY KEY,
+                    subject TEXT NOT NULL,
+                    sender TEXT NOT NULL DEFAULT '',
+                    received_at TEXT,
+                    participants_json TEXT NOT NULL DEFAULT '[]',
+                    unread INTEGER NOT NULL DEFAULT 0,
+                    read_by_me INTEGER NOT NULL DEFAULT 0,
+                    starred INTEGER NOT NULL DEFAULT 0,
+                    fetched INTEGER NOT NULL DEFAULT 0,
+                    last_seen_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS aula_messages (
+                    message_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL,
+                    sender TEXT NOT NULL DEFAULT '',
+                    body TEXT NOT NULL DEFAULT '',
+                    sent_at TEXT,
+                    is_from_me INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS aula_messages_thread_idx
+                    ON aula_messages(thread_id);
+                CREATE TABLE IF NOT EXISTS aula_posts (
+                    post_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    author TEXT NOT NULL DEFAULT '',
+                    body TEXT NOT NULL DEFAULT '',
+                    published_at TEXT,
+                    audience_json TEXT NOT NULL DEFAULT '[]',
+                    tags_json TEXT NOT NULL DEFAULT '[]',
+                    unread INTEGER NOT NULL DEFAULT 0,
+                    read_by_me INTEGER NOT NULL DEFAULT 0,
+                    starred INTEGER NOT NULL DEFAULT 0,
+                    last_seen_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS aula_events (
+                    event_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    location TEXT NOT NULL DEFAULT '',
+                    start_at TEXT,
+                    end_at TEXT,
+                    category TEXT NOT NULL DEFAULT '',
+                    profile_ids_json TEXT NOT NULL DEFAULT '[]',
+                    starred INTEGER NOT NULL DEFAULT 0,
+                    last_seen_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS aula_events_start_idx ON aula_events(start_at);
                 CREATE TABLE IF NOT EXISTS cameras (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
@@ -906,10 +981,292 @@ class Database:
                 > 0
             )
 
+    # --- Aula ---------------------------------------------------------------
+    # Aula-tabellerne er en cache af det, vi henter fra Aula. Stjerner og
+    # læst-markeringer er lokale, så de må aldrig overskrives ved sync.
+
+    def replace_aula_profiles(self, children: list[dict[str, Any]]) -> None:
+        with self.connection() as connection:
+            connection.execute("DELETE FROM aula_profiles")
+            for child in children:
+                profile_id = str(child.get("profile_id") or "")
+                if not profile_id:
+                    continue
+                connection.execute(
+                    "INSERT INTO aula_profiles(profile_id, name, institution, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        profile_id,
+                        str(child.get("name") or "Barn"),
+                        str(child.get("institution") or ""),
+                        utc_now(),
+                    ),
+                )
+
+    def list_aula_profiles(self) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM aula_profiles ORDER BY name, profile_id"
+            ).fetchall()
+        return [self._public(row) for row in rows]
+
+    def upsert_aula_thread(
+        self,
+        thread_id: str,
+        subject: str,
+        sender: str,
+        received_at: Optional[str],
+        participants: list[str],
+        unread: bool,
+    ) -> None:
+        now = utc_now()
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT INTO aula_threads(thread_id, subject, sender, received_at, "
+                "participants_json, unread, last_seen_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(thread_id) DO UPDATE SET subject = excluded.subject, "
+                "sender = excluded.sender, received_at = excluded.received_at, "
+                "participants_json = excluded.participants_json, "
+                "unread = excluded.unread, last_seen_at = excluded.last_seen_at",
+                (
+                    thread_id,
+                    subject,
+                    sender,
+                    received_at,
+                    json.dumps(participants, ensure_ascii=False),
+                    int(unread),
+                    now,
+                    now,
+                ),
+            )
+
+    def list_aula_threads(self) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM aula_threads ORDER BY COALESCE(received_at, last_seen_at) DESC"
+            ).fetchall()
+        return [self._aula_public(row) for row in rows]
+
+    def get_aula_thread(self, thread_id: str) -> Optional[dict[str, Any]]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM aula_threads WHERE thread_id = ?", (thread_id,)
+            ).fetchone()
+        return self._aula_public(row) if row else None
+
+    def mark_aula_thread_fetched(self, thread_id: str) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                "UPDATE aula_threads SET fetched = 1 WHERE thread_id = ?", (thread_id,)
+            )
+
+    def set_aula_thread_starred(self, thread_id: str, starred: bool) -> bool:
+        with self.connection() as connection:
+            return (
+                connection.execute(
+                    "UPDATE aula_threads SET starred = ? WHERE thread_id = ?",
+                    (int(starred), thread_id),
+                ).rowcount
+                > 0
+            )
+
+    def set_aula_thread_read(self, thread_id: str, is_read: bool) -> bool:
+        with self.connection() as connection:
+            return (
+                connection.execute(
+                    "UPDATE aula_threads SET read_by_me = ?, unread = ? WHERE thread_id = ?",
+                    (int(is_read), 0 if is_read else 1, thread_id),
+                ).rowcount
+                > 0
+            )
+
+    def upsert_aula_message(
+        self,
+        message_id: str,
+        thread_id: str,
+        sender: str,
+        body: str,
+        sent_at: Optional[str],
+        is_from_me: bool,
+    ) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT INTO aula_messages(message_id, thread_id, sender, body, sent_at, "
+                "is_from_me, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(message_id) DO UPDATE SET body = excluded.body, "
+                "sender = excluded.sender, sent_at = excluded.sent_at",
+                (message_id, thread_id, sender, body, sent_at, int(is_from_me), utc_now()),
+            )
+
+    def list_aula_messages(self, thread_id: str) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM aula_messages WHERE thread_id = ? "
+                "ORDER BY COALESCE(sent_at, created_at)",
+                (thread_id,),
+            ).fetchall()
+        return [self._public(row) for row in rows]
+
+    def upsert_aula_post(
+        self,
+        post_id: str,
+        title: str,
+        author: str,
+        body: str,
+        published_at: Optional[str],
+        audience: list[str],
+        tags: list[str],
+        unread: bool,
+    ) -> None:
+        now = utc_now()
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT INTO aula_posts(post_id, title, author, body, published_at, "
+                "audience_json, tags_json, unread, last_seen_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(post_id) DO UPDATE SET title = excluded.title, "
+                "author = excluded.author, body = excluded.body, "
+                "published_at = excluded.published_at, "
+                "audience_json = excluded.audience_json, tags_json = excluded.tags_json, "
+                "unread = excluded.unread, last_seen_at = excluded.last_seen_at",
+                (
+                    post_id,
+                    title,
+                    author,
+                    body,
+                    published_at,
+                    json.dumps(audience, ensure_ascii=False),
+                    json.dumps(tags, ensure_ascii=False),
+                    int(unread),
+                    now,
+                    now,
+                ),
+            )
+
+    def list_aula_posts(self) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM aula_posts ORDER BY COALESCE(published_at, last_seen_at) DESC"
+            ).fetchall()
+        return [self._aula_public(row) for row in rows]
+
+    def set_aula_post_starred(self, post_id: str, starred: bool) -> bool:
+        with self.connection() as connection:
+            return (
+                connection.execute(
+                    "UPDATE aula_posts SET starred = ? WHERE post_id = ?",
+                    (int(starred), post_id),
+                ).rowcount
+                > 0
+            )
+
+    def set_aula_post_read(self, post_id: str, is_read: bool) -> bool:
+        with self.connection() as connection:
+            return (
+                connection.execute(
+                    "UPDATE aula_posts SET read_by_me = ?, unread = ? WHERE post_id = ?",
+                    (int(is_read), 0 if is_read else 1, post_id),
+                ).rowcount
+                > 0
+            )
+
+    def upsert_aula_event(
+        self,
+        event_id: str,
+        title: str,
+        description: str,
+        location: str,
+        start_at: Optional[str],
+        end_at: Optional[str],
+        category: str,
+        profile_ids: list[str],
+    ) -> None:
+        now = utc_now()
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT INTO aula_events(event_id, title, description, location, start_at, "
+                "end_at, category, profile_ids_json, last_seen_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(event_id) DO UPDATE SET title = excluded.title, "
+                "description = excluded.description, location = excluded.location, "
+                "start_at = excluded.start_at, end_at = excluded.end_at, "
+                "category = excluded.category, profile_ids_json = excluded.profile_ids_json, "
+                "last_seen_at = excluded.last_seen_at",
+                (
+                    event_id,
+                    title,
+                    description,
+                    location,
+                    start_at,
+                    end_at,
+                    category,
+                    json.dumps(profile_ids, ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+
+    def list_aula_events(self) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM aula_events ORDER BY COALESCE(start_at, last_seen_at)"
+            ).fetchall()
+        return [self._aula_public(row) for row in rows]
+
+    def set_aula_event_starred(self, event_id: str, starred: bool) -> bool:
+        with self.connection() as connection:
+            return (
+                connection.execute(
+                    "UPDATE aula_events SET starred = ? WHERE event_id = ?",
+                    (int(starred), event_id),
+                ).rowcount
+                > 0
+            )
+
+    def clear_aula_items(self) -> None:
+        with self.connection() as connection:
+            for table in ("aula_messages", "aula_threads", "aula_posts", "aula_events"):
+                connection.execute(f"DELETE FROM {table}")
+
+    @staticmethod
+    def _aula_public(row: sqlite3.Row) -> dict[str, Any]:
+        """Gør en Aula-rækkke klar til JSON, med ulæst og læst samlet ét sted."""
+        item = Database._public(row)
+        json_columns = {
+            "participants_json": "participants",
+            "audience_json": "audience",
+            "tags_json": "tags",
+            "profile_ids_json": "profile_ids",
+        }
+        for column, key in json_columns.items():
+            if column not in item:
+                continue
+            try:
+                item[key] = json.loads(item.pop(column) or "[]")
+            except json.JSONDecodeError:
+                item[key] = []
+        # Aula's egen ulæst-markering tæller, medmindre brugeren har markeret
+        # emnet som læst her i dashboardet.
+        item["is_unread"] = bool(item.get("unread")) and not item.get("read_by_me")
+        return item
+
     @staticmethod
     def _public(row: sqlite3.Row) -> dict[str, Any]:
         item = dict(row)
-        for key in ("enabled", "visible", "pinned", "done", "all_day", "popup_enabled"):
+        for key in (
+            "enabled",
+            "visible",
+            "pinned",
+            "done",
+            "all_day",
+            "popup_enabled",
+            "unread",
+            "read_by_me",
+            "starred",
+            "fetched",
+            "is_from_me",
+        ):
             if key in item:
                 item[key] = bool(item[key])
         if item.get("source_id") is not None:
