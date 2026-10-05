@@ -24,7 +24,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from html import unescape
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 
 import httpx
 
@@ -83,6 +83,68 @@ def _pkce_pair() -> tuple[str, str]:
 
 def _client_id(scope: str) -> str:
     return CLIENT_ID_MITID if scope == SCOPE_MITID else CLIENT_ID
+
+
+def _b64_tekst(vaerdi: str) -> str:
+    """Dekoder base64, også hvis Aula har skrevet det uden '='-tegn.
+
+    app-redirect læser `returnUri` som en query-parameter, så et '+' i
+    base64'en bliver til et mellemrum, ligesom i PHP. Hvis den ikke kan
+    læses, prøver vi derfor igen med mellerum tilbage som '+'.
+    """
+    fyld = "=" * (-len(vaerdi) % 4)
+    for forsøg in (vaerdi, vaerdi.replace(" ", "+")):
+        try:
+            return base64.urlsafe_b64decode(forsøg + fyld).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            continue
+    raise ValueError("returnUri er ikke gyldig base64")
+
+
+def _find_param(hoved: str, navn: str) -> str:
+    """Plukker én parameter ud af en URL eller en `a=b&c=d`-streng."""
+    # parse_qs ville være nemmere, men den finder ikke `code=` i en
+    # base64-kodet returadresse, som er den form brugeren lander på.
+    match = re.search(rf"[?&#]{re.escape(navn)}=([^&#\s]+)", hoved)
+    return unquote(match.group(1)) if match else ""
+
+
+def _traek_kode(indhold: str) -> tuple[str, str]:
+    """Finder login-koden i hvad brugeren nu har indsat.
+
+    MitID-login'en ender på app-redirect.aula.dk, som er en mellemside til
+    Aulas mobilapp. Den har koden indpakket i `returnUri` som base64, og
+    "Fortsæt login"-knappen fører videre til Aulas egen webapp, som ikke
+    kan bruges herfra. Derfor læser vi koden direkte ud af den adresse,
+    brugeren lander på, i stedet for at bede dem om at trykke videre.
+
+    Godtages også app-private-adressen, `code=..&state=..` og koden alene.
+    """
+    tekst = (indhold or "").strip().strip('"').strip("'")
+    for _ in range(4):  # returnUri kan pege videre, men ikke i en løkke
+        if not tekst:
+            return "", ""
+        pakket = _find_param(tekst, "returnUri")
+        if pakket and "code=" not in tekst:
+            try:
+                tekst = _b64_tekst(pakket)
+            except (ValueError, UnicodeDecodeError):
+                return "", ""
+            continue
+        kode = _find_param(tekst, "code")
+        if kode:
+            return kode, _find_param(tekst, "state")
+        # Ren `a=b&c=d` uden kodesti: find den som hedder code.
+        par = {}
+        for delel in tekst.split("&"):
+            if "=" in delel:
+                nøgle, værdi = delel.split("=", 1)
+                par.setdefault(nøgle.strip(), unquote(værdi.strip()))
+        if par.get("code"):
+            return par["code"], par.get("state", "")
+        # Ellers er det koden alene.
+        return tekst, ""
+    return "", ""
 
 
 class AulaClient:
@@ -376,6 +438,8 @@ class AulaSync:
 
     async def complete_login(self, code: str, state: str = "") -> dict[str, Any]:
         """Bytter login-koden til tokens og henter børnenes profiler."""
+        kode, url_state = _traek_kode(code)
+        state = url_state or (state or "").strip()
         verifier = self.database.get_setting("aula_login_verifier") or ""
         expected_state = self.database.get_setting("aula_login_state") or ""
         expires = self.database.get_setting("aula_login_expires") or ""
@@ -389,15 +453,14 @@ class AulaSync:
                     raise AulaAuthError("Login-linket er udløbet. Start login igen med MitID.")
             except ValueError:
                 pass
-        code = code.strip()
-        if not code:
+        if not kode:
             raise AulaError("Ingen kode modtaget fra Aula")
 
         scope = self.database.get_setting("aula_login_scope") or SCOPE
         tokens = await self._exchange(
             {
                 "grant_type": "authorization_code",
-                "code": code,
+                "code": kode,
                 "client_id": _client_id(scope),
                 "redirect_uri": REDIRECT_URI,
                 "code_verifier": verifier,

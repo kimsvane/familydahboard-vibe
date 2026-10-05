@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -15,6 +16,7 @@ from app.aula import (
     _parse_datetime,
     _pkce_pair,
     _strip_html,
+    _traek_kode,
 )
 from app.db import Database
 
@@ -272,6 +274,115 @@ def test_komplet_login_udveksler_kode_og_gemmer_tokens(aula_db):
     assert aula_db.get_setting("aula_login_verifier") == ""
     assert aula_db.get_setting("aula_login_state") == ""
     assert AulaSync(aula_db).configured() is True
+
+
+# --- det brugeren indsætter -------------------------------------------------
+
+# MitID-login'en lander på app-redirect.aula.dk, som er en mellemside til
+# Aulas mobilapp. Den har koden base64-kodet i `returnUri`, og "Fortsæt
+# login"-knappen fører videre til Aulas egen webapp, som ikke kan bruges
+# herfra. Sådan ser en af de rigtige adresser ud.
+EN_VIRKELIG_MELLEMSIDE = (
+    "https://app-redirect.aula.dk/?returnUri=aHR0cHM6Ly9hcHAtcHJpdmF0ZS5hdWxhLmRr"
+    "Lz9jb2RlPWRlZjUwMjAwMzEzYjMxNDMxZWVkMDY5YjM2ZTUyYzY1MzYyOTgxNzExNTJiMTk3"
+    "NjJkZThlMDZlZjk0NmYwZWNmMjMzZjI2ODZmMDg5NTRmMTIwYTY2YjljYjU0NWY1YWFjODdjMWZh"
+    "MjMwNGExMTAzMDgyYjQyODZiOGQ0MmEzZjU2YjQ5ZjdkYjgyMDc1YmRmM2FlOGY2M2Q0Yzg2OTE5"
+    "N2Q3MzA1NDY5ZDgxYTE1ZmI3MmI2OWRiNDk1NzU1MjQwZjhlM2Y0MzU0ODFkMzUwMDA5OGI1Mjgx"
+    "OWNhZWIwNDg2NWYyNTVkY2Q4Zjc2NTczMTZhODQwNmE3MTg1YWRjYjFlMjYwZTA0NjMyNWViMTkw"
+    "NzM4ZmQzMGNkYTk2MGVjODJjNjdjNzQ4NDYwZGI0ODhmMTUwY2Y0OGQ1YmM3NDY1NmNiNGI5NWQ5"
+    "NmIyNjhhNzE3NjY3MzJlNzJiNDFkZWQwZjhkNTA5YzdjNGJmNGUxYjJiZDdiNDEwYzBhOTg4MjY5"
+    "ODUyZWQ0NzY4ODVmZTE1YzI2M2FiZDJlZWRmN2YzNDRlY2M1OWRjMWI1MTk1Y2Q4ZDI3OTI3"
+    "OTUwNWI2MzczNjY0ZThhODk0OGNkNWNjYTQxNTExNDlhNGY5MzVmOGE5MGRkNzUyMzg2OGM1ODc4"
+    "MDYzMWY4NDEzZjA5YTUwMWYwZjAyYTc0NjcwMmY5NmIzNGI5MzBiNWRiYjNmZDM5NzA4MzFhNzll"
+    "OWQ5OWMwMjIwNTFiOGY4OTUwNTYyMjQ5MDllYTRjNzY4NDBkNjA5OWFhYjhkODE5YTYwMTBkNWJh"
+    "MWFlYzZiM2MyNjlmNzg5OWRmMTQ1MTVhYzhiNDY4Y2MzZjE1ZDVmZmM4YmFjYzgyZTk1ODk2Y2Y0OWVj"
+    "ZWQyNGVhOGExMThkYjA0Njk0MWY4M2E5MGUwODcyMGZiZDg4MGI4NzYxNGQ2ZjQ0Zjk5MDFmMmI5"
+    "ZjgwYjg4MDQzZDk4OTdkOTRjZWFkYTZkOTc1MTJkZDczMGE5MjRjNGNlNjdjZmFlYjA1Y2FlN2Mx"
+    "MjM0YTQxY2I4NDM0NWZhMTE2OWFmZTczMTc0ZWI2NzEyZTQ2NDc3NTllYTBlYjY5ZDg0NmYzMTM0"
+    "NTFiNTBmOTIyNzM4OTY4MmNlOTQ3MjM5NzE5ZWQ0Mzk0NmRjMTQ5NWUwZWZkNWEmc3RhdGU9YzI0"
+    "OTMwYjdiOGI1ODk0YWZmNTIyODgwYWRiOWM1ZDQ="
+)
+
+
+def test_kode_læses_ud_app_redirect_adressen():
+    kode, state = _traek_kode(EN_VIRKELIG_MELLEMSIDE)
+    assert kode.startswith("def50200313b31431eed069b36e")
+    assert len(kode) == 892
+    assert state == "c24930b7b8b5894aff522880adb9c5d4"
+
+
+def test_kode_læses_ud_app_private_adressen():
+    adresse = "https://app-private.aula.dk/?code=deadbeefcafe&state=abc123"
+    assert _traek_kode(adresse) == ("deadbeefcafe", "abc123")
+
+
+def test_kode_og_state_som_query_uden_scheme():
+    assert _traek_kode("code=deadbeefcafe&state=abc123") == ("deadbeefcafe", "abc123")
+
+
+def test_bare_kode_gives_uaendret_tilbage():
+    assert _traek_kode("  deadbeefcafe \n") == ("deadbeefcafe", "")
+
+
+def test_adresse_kopieret_med_omkringende_tegn_virker():
+    """ Kopierer man fra en chat eller et link, kan der være citater omkring."""
+    adresse = "https://app-private.aula.dk/?code=deadbeefcafe&state=abc123"
+    assert _traek_kode(f'"{adresse}"') == ("deadbeefcafe", "abc123")
+
+
+def test_ugyldig_base64_giver_tom_kode_og_ingen_fejl():
+    assert _traek_kode("https://app-redirect.aula.dk/?returnUri=%%%") == ("", "")
+    assert _traek_kode("") == ("", "")
+    assert _traek_kode(None) == ("", "")
+
+
+def test_plus_i_adressen_er_stadig_en_kode():
+    """'+' bliver til et mellemrum i en query-streng, som app-redirect gør."""
+    kode = "abc" * 100  # 300 tegn -> base64 med '+' i sig
+    adresse = _mellemside(kode, "stat")
+    assert "+" in adresse or "/" in adresse
+    hvervet = adresse.replace("+", "%20")
+    assert _traek_kode(hvervet) == (kode, "stat")
+
+
+def _mellemside(kode: str, state: str) -> str:
+    """Bygger den adresse app-redirect.aula.dk sender brugeren videre til."""
+    indre = f"https://app-private.aula.dk/?code={kode}&state={state}"
+    return "https://app-redirect.aula.dk/?returnUri=" + base64.b64encode(indre.encode()).decode()
+
+
+def test_komplet_login_godtar_hele_adressen_fra_mellemsiden(aula_db):
+    """Brugeren skal kunne indsætte adressen han lander på, ukodet."""
+    async def scenario():
+        sync = AulaSync(aula_db)
+        started = await sync.login_url()
+        byttet = {}
+
+        async def fake_udveksling(payload):
+            byttet.update(payload)
+            return {"access_token": "access-1", "refresh_token": "refresh-1", "expires_in": 3600}
+
+        with patch.object(sync, "_exchange", new=AsyncMock(side_effect=fake_udveksling)), patch.object(
+            sync, "_refresh_profiles", new=AsyncMock(return_value=[])
+        ), patch.object(sync, "sync", new=AsyncMock(return_value={"threads": 0, "posts": 0})):
+            adresse = _mellemside("kode-fra-mellemsiden", started["state"])
+            assert (await sync.complete_login(adresse))["ok"] is True
+        return byttet
+
+    byttet = asyncio.run(scenario())
+    # Rå-adressen må ikke sendes videre som kode, kun den kode den indeholder.
+    assert byttet["code"] == "kode-fra-mellemsiden"
+    assert byttet["code_verifier"]
+    assert aula_db.get_setting("aula_access_token") == "access-1"
+    assert AulaSync(aula_db).configured() is True
+
+
+def test_komplet_login_afviser_state_fra_en_anden_gammel_adresse(aula_db):
+    sync = AulaSync(aula_db)
+    asyncio.run(sync.login_url())
+    gammel = "https://app-private.aula.dk/?code=deadbeef&state=state-fra-et-andet-login"
+    with pytest.raises(AulaAuthError):
+        asyncio.run(sync.complete_login(gammel))
 
 
 # --- synkronisering --------------------------------------------------------

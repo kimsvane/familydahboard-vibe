@@ -2046,7 +2046,7 @@ async function aulaLoginStart() {
     state.aulaLoginState = result.state || "";
     window.open(result.url, "_blank", "noopener");
     $("#aula-code-fields").hidden = false;
-    $("#aula-login-hint").textContent = "Godkend på din telefon, og indsæt koden fra den adresse, du lander på.";
+    $("#aula-login-hint").textContent = "Godkend på din telefon, og indsæt så hele adressen fra browserens adresselinje.";
     $("#aula-login-code").focus();
   } catch (error) {
     $("#aula-login-error").textContent = error.message;
