@@ -1115,6 +1115,9 @@ function renderSettings(summary) {
   const aulaForm = $("#aula-settings-form");
   aulaForm.elements.aula_enabled.checked = settings.aula_enabled === true || settings.aula_enabled === "true";
   aulaForm.elements.aula_sync_minutes.value = settings.aula_sync_minutes || "15";
+  if (aulaForm.elements.aula_posts_hint_hours) {
+    aulaForm.elements.aula_posts_hint_hours.value = settings.aula_posts_hint_hours || "24";
+  }
   const aulaBadge = $("#aula-settings-status");
   aulaBadge.textContent = settings.aula_configured ? "Logt ind" : "Ikke logt ind";
   aulaBadge.classList.toggle("ok", !!settings.aula_configured);
@@ -2157,6 +2160,9 @@ function bindEvents() {
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
     values.aula_enabled = values.aula_enabled === "on";
     values.aula_sync_minutes = Number(values.aula_sync_minutes) || 15;
+    if (values.aula_posts_hint_hours !== undefined && values.aula_posts_hint_hours !== "") {
+      values.aula_posts_hint_hours = Number(values.aula_posts_hint_hours) || 24;
+    }
     try { await api("/api/settings", { method: "PATCH", body: values }); await loadSummary(true); showToast("Aula gemt"); } catch (error) { showToast(error.message, true); }
   });
   $("#aula-test").addEventListener("click", async () => {

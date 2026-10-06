@@ -404,7 +404,8 @@
             <p class="section-copy">Aula er logt ind med MitID, så dashboardet kan hente beskeder, opslag og kalender direkte. Det er det samme login, som Aula-appen bruger, og det laves kun én gang. Skoleskema-siden er uafhængig af dette og bruger dine abonnementer som før.</p>
             <form id="aula-settings-form" class="stack-form">
               <label class="check-label"><input type="checkbox" name="aula_enabled"> Hent automatisk fra Aula hver kvartal</label>
-              <div class="form-row"><div><label for="setting-aula-sync-minutes">Hent hvert … minut</label><input id="setting-aula-sync-minutes" name="aula_sync_minutes" type="number" min="1" max="240"></div><div class="section-actions"><button class="button secondary" id="aula-test" type="button">Test forbindelse</button><button class="button secondary" id="aula-logout" type="button">Log ud</button></div></div>
+              <div class="form-row"><div><label for="setting-aula-sync-minutes">Hent hvert … minut</label><input id="setting-aula-sync-minutes" name="aula_sync_minutes" type="number" min="1" max="240"></div><div><label for="setting-aula-posts-hint-hours">Vis Aula-opslag i "Husk" de sidste … timer</label><input id="setting-aula-posts-hint-hours" name="aula_posts_hint_hours" type="number" min="1" max="720"></div></div>
+              <div class="section-actions"><button class="button secondary" id="aula-test" type="button">Test forbindelse</button><button class="button secondary" id="aula-logout" type="button">Log ud</button></div>
               <button class="button primary" type="submit">Gem Aula</button>
               <p class="muted small-copy" id="aula-settings-help"></p>
             </form>
