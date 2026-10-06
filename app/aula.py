@@ -992,6 +992,42 @@ class AulaSync:
                 _first(event, "startDateTime", "startDate", "start", "meetingDate", "begin")
             )
             end_dt = _parse_datetime(_first(event, "endDateTime", "endDate", "end", default=None))
+            response_status = _first(
+                event,
+                "responseStatus",
+                "attendeeStatus",
+                "invitationStatus",
+                "participationStatus",
+                "status",
+                "myResponse",
+                "myParticipation",
+                default=None,
+            )
+            response_raw = _first(
+                event,
+                "response",
+                "attendeeResponse",
+                "invitationResponse",
+                "participation",
+                default=None,
+            )
+            accepted_val = None
+            if isinstance(response_status, str):
+                rs = response_status.lower()
+                if rs in ("accepted", "accepteret", "attending", "participating", "ja", "yes"):
+                    accepted_val = True
+                elif rs in ("declined", "afvist", "notattending", "notparticipating", "nej", "no"):
+                    accepted_val = False
+            if accepted_val is None:
+                accepted_raw = _first(event, "accepted", "isAccepted", "hasAccepted", "attending", default=None)
+                if isinstance(accepted_raw, bool):
+                    accepted_val = accepted_raw
+                elif isinstance(accepted_raw, str):
+                    ar = accepted_raw.lower()
+                    if ar in ("true", "1", "ja", "yes", "accepted"):
+                        accepted_val = True
+                    elif ar in ("false", "0", "nej", "no", "declined"):
+                        accepted_val = False
             self.database.upsert_aula_event(
                 event_id=str(_first(event, "id", "meetingId", "guid", default="")),
                 title=str(_first(event, "title", "subject", "name", default="(uden titel)")),
@@ -1005,6 +1041,9 @@ class AulaSync:
                 profile_ids=_as_list(
                     _first(event, "belongsToProfiles", "institutionProfileIds", "profiles")
                 ),
+                response_status=str(response_status) if response_status is not None else None,
+                response=str(response_raw) if response_raw is not None else None,
+                accepted=accepted_val,
             )
             stored += 1
 

@@ -243,6 +243,18 @@ class Database:
                 )
             except Exception:
                 pass
+            try:
+                connection.execute("ALTER TABLE aula_events ADD COLUMN response_status TEXT")
+            except Exception:
+                pass
+            try:
+                connection.execute("ALTER TABLE aula_events ADD COLUMN response TEXT")
+            except Exception:
+                pass
+            try:
+                connection.execute("ALTER TABLE aula_events ADD COLUMN accepted INTEGER")
+            except Exception:
+                pass
 
             connection.executescript(
                 """
@@ -269,6 +281,9 @@ class Database:
                     end_at TEXT,
                     category TEXT NOT NULL DEFAULT '',
                     profile_ids_json TEXT NOT NULL DEFAULT '[]',
+                    response_status TEXT,
+                    response TEXT,
+                    accepted INTEGER,
                     starred INTEGER NOT NULL DEFAULT 0,
                     last_seen_at TEXT NOT NULL,
                     created_at TEXT NOT NULL
@@ -1233,17 +1248,25 @@ class Database:
         end_at: Optional[str],
         category: str,
         profile_ids: list[str],
+        response_status: Optional[str] = None,
+        response: Optional[str] = None,
+        accepted: Optional[bool] = None,
     ) -> None:
         now = utc_now()
+        accepted_val: Optional[int] = int(accepted) if accepted is not None else None
         with self.connection() as connection:
             connection.execute(
                 "INSERT INTO aula_events(event_id, title, description, location, start_at, "
-                "end_at, category, profile_ids_json, last_seen_at, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "end_at, category, profile_ids_json, response_status, response, accepted, "
+                "last_seen_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(event_id) DO UPDATE SET title = excluded.title, "
                 "description = excluded.description, location = excluded.location, "
                 "start_at = excluded.start_at, end_at = excluded.end_at, "
                 "category = excluded.category, profile_ids_json = excluded.profile_ids_json, "
+                "response_status = COALESCE(excluded.response_status, aula_events.response_status), "
+                "response = COALESCE(excluded.response, aula_events.response), "
+                "accepted = COALESCE(excluded.accepted, aula_events.accepted), "
                 "last_seen_at = excluded.last_seen_at",
                 (
                     event_id,
@@ -1254,6 +1277,9 @@ class Database:
                     end_at,
                     category,
                     json.dumps(profile_ids, ensure_ascii=False),
+                    response_status,
+                    response,
+                    accepted_val,
                     now,
                     now,
                 ),

@@ -1935,12 +1935,18 @@ function aulaPostItem(post) {
 
 function aulaEventItem(event, child) {
   const fromFallback = Boolean(event.from_school_fallback);
+  let acceptText = "";
+  if (event.accepted === true) acceptText = "Accepteret";
+  else if (event.accepted === false) acceptText = "Afvist";
+  else if (event.response_status) acceptText = event.response_status;
+  else if (event.response) acceptText = event.response;
+  const metaParts = [event.location, event.category, child?.name, fromFallback ? "fra skoleabonnement" : "", acceptText].filter(Boolean);
   return `<article class="panel aula-item${event.starred ? " starred" : ""}">
     <div class="aula-item-head">
       <div>
         <p class="eyebrow">${escapeHtml(event.start_at ? `${formatShortDate(event.start_at)} ${formatTime(event.start_at)}` : "Aula")}</p>
         <h3>${escapeHtml(event.title || "(uden titel)")}</h3>
-        <span class="muted small-copy">${escapeHtml([event.location, event.category, child?.name, fromFallback ? "fra skoleabonnement" : ""].filter(Boolean).join(" · "))}</span>
+        <span class="muted small-copy">${escapeHtml(metaParts.join(" · "))}</span>
       </div>
       <div class="aula-item-actions">
         ${fromFallback ? "" : aulaStarButton("event", event.event_id, event.starred, event.title || "kalenderpost")}
