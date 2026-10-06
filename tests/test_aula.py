@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app import main
 from app.aula import (
+    AulaApiGone,
     AulaAuthError,
     AulaClient,
     AulaError,
@@ -282,33 +284,30 @@ def test_komplet_login_udveksler_kode_og_gemmer_tokens(aula_db):
 # Aulas mobilapp. Den har koden base64-kodet i `returnUri`, og "Fortsæt
 # login"-knappen fører videre til Aulas egen webapp, som ikke kan bruges
 # herfra. Sådan ser en af de rigtige adresser ud.
-EN_VIRKELIG_MELLEMSIDE = (
-    "https://app-redirect.aula.dk/?returnUri=aHR0cHM6Ly9hcHAtcHJpdmF0ZS5hdWxhLmRr"
-    "Lz9jb2RlPWRlZjUwMjAwMzEzYjMxNDMxZWVkMDY5YjM2ZTUyYzY1MzYyOTgxNzExNTJiMTk3"
-    "NjJkZThlMDZlZjk0NmYwZWNmMjMzZjI2ODZmMDg5NTRmMTIwYTY2YjljYjU0NWY1YWFjODdjMWZh"
-    "MjMwNGExMTAzMDgyYjQyODZiOGQ0MmEzZjU2YjQ5ZjdkYjgyMDc1YmRmM2FlOGY2M2Q0Yzg2OTE5"
-    "N2Q3MzA1NDY5ZDgxYTE1ZmI3MmI2OWRiNDk1NzU1MjQwZjhlM2Y0MzU0ODFkMzUwMDA5OGI1Mjgx"
-    "OWNhZWIwNDg2NWYyNTVkY2Q4Zjc2NTczMTZhODQwNmE3MTg1YWRjYjFlMjYwZTA0NjMyNWViMTkw"
-    "NzM4ZmQzMGNkYTk2MGVjODJjNjdjNzQ4NDYwZGI0ODhmMTUwY2Y0OGQ1YmM3NDY1NmNiNGI5NWQ5"
-    "NmIyNjhhNzE3NjY3MzJlNzJiNDFkZWQwZjhkNTA5YzdjNGJmNGUxYjJiZDdiNDEwYzBhOTg4MjY5"
-    "ODUyZWQ0NzY4ODVmZTE1YzI2M2FiZDJlZWRmN2YzNDRlY2M1OWRjMWI1MTk1Y2Q4ZDI3OTI3"
-    "OTUwNWI2MzczNjY0ZThhODk0OGNkNWNjYTQxNTExNDlhNGY5MzVmOGE5MGRkNzUyMzg2OGM1ODc4"
-    "MDYzMWY4NDEzZjA5YTUwMWYwZjAyYTc0NjcwMmY5NmIzNGI5MzBiNWRiYjNmZDM5NzA4MzFhNzll"
-    "OWQ5OWMwMjIwNTFiOGY4OTUwNTYyMjQ5MDllYTRjNzY4NDBkNjA5OWFhYjhkODE5YTYwMTBkNWJh"
-    "MWFlYzZiM2MyNjlmNzg5OWRmMTQ1MTVhYzhiNDY4Y2MzZjE1ZDVmZmM4YmFjYzgyZTk1ODk2Y2Y0OWVj"
-    "ZWQyNGVhOGExMThkYjA0Njk0MWY4M2E5MGUwODcyMGZiZDg4MGI4NzYxNGQ2ZjQ0Zjk5MDFmMmI5"
-    "ZjgwYjg4MDQzZDk4OTdkOTRjZWFkYTZkOTc1MTJkZDczMGE5MjRjNGNlNjdjZmFlYjA1Y2FlN2Mx"
-    "MjM0YTQxY2I4NDM0NWZhMTE2OWFmZTczMTc0ZWI2NzEyZTQ2NDc3NTllYTBlYjY5ZDg0NmYzMTM0"
-    "NTFiNTBmOTIyNzM4OTY4MmNlOTQ3MjM5NzE5ZWQ0Mzk0NmRjMTQ5NWUwZWZkNWEmc3RhdGU9YzI0"
-    "OTMwYjdiOGI1ODk0YWZmNTIyODgwYWRiOWM1ZDQ="
+#
+# Adressen fremstilles syntetisk i stedet for at blive kopieret fra en rigtig
+# login, så ingen brugbare engangskoder ender i git.
+_SYNTETISK_KODE = "deadbeefcafe" * 74 + "dead"  # 892 tegn, som i virkeligheden
+_SYNTETISK_STATE = "0123456789abcdef0123456789abcd"
+EN_MELLEMSIDE = (
+    "https://app-redirect.aula.dk/?returnUri="
+    + base64.b64encode(
+        f"https://app-private.aula.dk/?code={_SYNTETISK_KODE}&state={_SYNTETISK_STATE}".encode()
+    ).decode()
 )
 
 
 def test_kode_læses_ud_app_redirect_adressen():
-    kode, state = _traek_kode(EN_VIRKELIG_MELLEMSIDE)
-    assert kode.startswith("def50200313b31431eed069b36e")
+    kode, state = _traek_kode(EN_MELLEMSIDE)
+    assert kode == _SYNTETISK_KODE
     assert len(kode) == 892
-    assert state == "c24930b7b8b5894aff522880adb9c5d4"
+    assert state == _SYNTETISK_STATE
+
+
+def test_mellemside_adressen_indholder_ingen_rigtige_tokens():
+    """Adressen i testene skal være syntetisk, ikke kopieret fra en rigtig login."""
+    assert "eyJ" not in EN_MELLEMSIDE
+    assert _SYNTETISK_KODE.startswith("deadbeef")
 
 
 def test_kode_læses_ud_app_private_adressen():
@@ -389,23 +388,60 @@ def test_komplet_login_afviser_state_fra_en_anden_gammel_adresse(aula_db):
 
 
 def fake_client(**overrides):
-    """Aula-klient med forudbestemte svar, så intet går på nettet."""
+    """Aula-klient med forudbestemte svar, så intet går på nettet.
+
+    Svarene er klippet ud af rigtige v24-svar, så testene passer på de
+    feltnavne Aula faktisk leverer.
+    """
     defaults = {
         "profiles": AsyncMock(return_value=[{"institutionProfileId": 111, "name": "Emil"}]),
-        "establish_context": AsyncMock(return_value={"institutions": [
-            {"name": "Nord", "children": [{"institutionProfileId": 111, "name": "Emil"}]}
-        ]}),
+        "establish_context": AsyncMock(return_value={
+            "institutionProfile": {"id": 100, "profileId": 90},
+            "institutions": [
+                {
+                    "institutionProfileId": 100,
+                    "name": "Nord Skole",
+                    "children": [{"id": 111, "profileId": 222, "name": "Emil"}],
+                }
+            ],
+        }),
         "threads": AsyncMock(return_value=[
-            {"threadId": "t1", "subject": "Hej", "senderName": "Lærer", "date": "2026-10-05T08:00:00Z", "unread": 1, "participants": ["Emil"]},
+            {
+                "id": "t1",
+                "subject": "Hej",
+                "startedTime": "2026-10-05T08:00:00+00:00",
+                "read": False,
+                "creator": {"fullName": "Lærer Lise", "mailBoxOwner": {"portalRole": "employee"}},
+                "regardingChildren": [{"profileId": 222, "name": "Emil"}],
+            },
         ]),
         "messages": AsyncMock(return_value=[
-            {"messageId": "m1", "senderName": "Lærer", "content": "<p>Hej med dig</p>", "date": "2026-10-05T08:00:00Z"},
+            {
+                "id": "m1",
+                "sendDateTime": "2026-10-05T08:00:00+00:00",
+                "sender": {"fullName": "Lærer Lise", "shortName": "LL"},
+                "text": {"html": "<p>Hej med dig</p>"},
+            },
         ]),
         "posts": AsyncMock(return_value=[
-            {"id": "p1", "title": "Ture i morgen", "authorName": "Lærer", "content": {"html": "<p>Medtag regntøj</p>"}, "timestamp": 1_700_000_000},
+            {
+                "id": "p1",
+                "title": "Ture i morgen",
+                "publishAt": "2026-10-05T07:00:00+00:00",
+                "ownerProfile": {"fullName": "Lærer Lise"},
+                "content": "<p>Medtag regntøj</p>",
+            },
         ]),
         "calendar_events": AsyncMock(return_value=[
-            {"id": "e1", "title": "Matematik", "startDate": "2026-10-06T08:00:00Z", "endDate": "2026-10-06T08:45:00Z", "location": "1. sal", "institutionProfileIds": [111]},
+            {
+                "id": "e1",
+                "title": "Matematik",
+                "startDateTime": "2026-10-06T08:00:00+00:00",
+                "endDateTime": "2026-10-06T08:45:00+00:00",
+                "primaryResourceText": "1. sal",
+                "type": "event",
+                "belongsToProfiles": [111],
+            },
         ]),
     }
     defaults.update(overrides)
@@ -742,3 +778,319 @@ def test_api_logout_rydder_alt(tmp_path):
             assert client.get("/api/aula").json()["configured"] is False
     finally:
         restore_aula(saved)
+
+
+# --- Aula API v24 ---------------------------------------------------------
+#
+# Aula trak api/v23 tilbage og svarer 410 Gone på den. Det sker i praksis
+# hver gang en installation med en gammel gemt version rammer en nyere
+# Aula-backend, så det er en fejl at blive hængt fast i en version:
+# klienten skal finde den nyeste selv og huske resultatet.
+
+
+def test_410_giver_en_versionsfejl_ikke_en_loginfejl():
+    """410 betyder "udgået version", ikke "log ind igen".
+
+    Hvis 410 blev behandlet som en udløbet login, ville brugeren blive bedt om
+    at logge ind igen, hver gang Aula har opdateret sit API.
+    """
+    client = AulaClient(access_token="token", api_version=23)
+    response = aula_response(410, {"status": {"code": 10, "message": "Version gone"}})
+
+    fejl = client._fejl(response)
+
+    assert isinstance(fejl, AulaApiGone)
+    assert not isinstance(fejl, AulaAuthError)
+    assert fejl.version == 23
+
+
+def test_401_og_403_giver_loginfejl(aula_db):
+    """Et udløbet token skal derimod bede om nyt login."""
+    client = AulaClient(access_token="token")
+    for status in (401, 403):
+        assert isinstance(client._fejl(aula_response(status)), AulaAuthError)
+
+
+def _gammel_version(db):
+    """Efterligner en installation, der har en død version gemt."""
+    db.update_settings(
+        {
+            "aula_access_token": "token",
+            "aula_refresh_token": "refresh",
+            "aula_api_version": "23",
+        }
+    )
+
+
+def test_gammel_version_bumper_til_næste_og_gemmes(aula_db):
+    _gammel_version(aula_db)
+    sync = AulaSync(aula_db)
+    kald = {"n": 0}
+
+    async def kal():
+        kald["n"] += 1
+        if kald["n"] == 1:
+            raise AulaApiGone(23)
+        return {"ok": True}
+
+    resultat = asyncio.run(sync._with_version_retry(sync._client(), kal))
+
+    assert resultat == {"ok": True}
+    assert kald["n"] == 2
+    assert aula_db.get_setting("aula_api_version") == "24"
+
+
+def test_flere_udgåede_versioner_skaler_frem_til_en_levende(aula_db):
+    """Aula kan have lukket flere versioner på én gang, så vi prøver videre."""
+    _gammel_version(aula_db)
+    sync = AulaSync(aula_db)
+    kald = {"n": 0}
+
+    async def kal():
+        kald["n"] += 1
+        if kald["n"] <= 3:
+            raise AulaApiGone(0)
+        return "levende"
+
+    assert asyncio.run(sync._with_version_retry(sync._client(), kal)) == "levende"
+    # 23 -> 24 -> 25 -> 26, og den version bliver gemt til næste kørsel.
+    assert aula_db.get_setting("aula_api_version") == "26"
+
+
+def test_aldrig_prøv_ud_over_den_sidste_version(aula_db):
+    """Vi må ikke blive ved med at bumpe versioner for evigt."""
+    _gammel_version(aula_db)
+    sync = AulaSync(aula_db)
+    client = sync._client()
+    client.api_version = 40
+
+    async def kal():
+        raise AulaApiGone(40)
+
+    with pytest.raises(AulaError) as fanget:
+        asyncio.run(sync._with_version_retry(client, kal))
+    assert not isinstance(fanget.value, AulaAuthError)
+    assert "40" in str(fanget.value)
+
+
+def test_uden_gemt_version_vi_vil_kigge_paa_v24(aula_db):
+    """En ny installation skal ramme den version Aula faktisk serverer."""
+    assert AulaSync(aula_db)._client().api_version == 24
+
+
+def test_ogsaa_profilkaldet_prøver_en_ny_version(aula_db):
+    """Profilkallet er det første Aula bliver kontaktet med, så det skal
+    prøve en ny version ligesom resten."""
+    _gammel_version(aula_db)
+    sync = AulaSync(aula_db)
+    client = sync._client()
+    client.profiles = AsyncMock(side_effect=[AulaApiGone(23), [{"institutionProfileId": 1}]])
+    client.establish_context = AsyncMock(return_value={"institutions": []})
+
+    asyncio.run(sync._refresh_profiles(client))
+
+    assert aula_db.get_setting("aula_api_version") == "24"
+
+
+def test_session_og_csrf_lever_i_den_samme_cookie_jar():
+    """Kalenderens POST får 403, hvis ikke begge cookies sendes samlet.
+
+    Aula sætter PHPSESSID på ét svar og Csrfp-Token på et andet, så klienten
+    skal genbruge én HTTP-klient i stedet for at åbne en ny til hvert kald.
+    """
+    kaldte = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        kaldte.append(request)
+        if "profiles.getProfilesByLogin" in str(request.url):
+            return httpx.Response(
+                200, json={"data": {}},
+                headers={"set-cookie": "PHPSESSID=abc123; path=/; secure"},
+            )
+        return httpx.Response(
+            200, json={"data": {"institutionProfile": {"id": 1}}},
+            headers={"set-cookie": "Csrfp-Token=tok987; path=/; secure"},
+        )
+
+    async def kør():
+        client = AulaClient(access_token="token")
+        client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        await client.profiles()
+        await client.establish_context()
+        assert client.session_cookie == "abc123"
+        assert client.csrf_token == "tok987"
+        assert client._http.cookies.get("PHPSESSID") == "abc123"
+        assert client._http.cookies.get("Csrfp-Token") == "tok987"
+        await client.aclose()
+
+    asyncio.run(kør())
+    assert len(kaldte) == 2
+
+
+def test_kalender_er_et_post_kald_med_json():
+    """getCalendarItems findes ikke i v24 - kalenderen kræver et POST-kald."""
+    sete = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            sete["body"] = json.loads(request.content)
+            sete["csrf"] = request.headers.get("Csrfp-Token")
+            return httpx.Response(200, json={"data": []})
+        return httpx.Response(
+            200, json={"data": {"institutions": []}},
+            headers={"set-cookie": "Csrfp-Token=tok987; path=/"},
+        )
+
+    async def kør():
+        client = AulaClient(access_token="token")
+        client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        await client.calendar_events(["111", "222"], "2026-10-01", "2026-10-31")
+        await client.aclose()
+
+    asyncio.run(kør())
+    assert sete["body"]["instProfileIds"] == ["111", "222"]
+    assert sete["body"]["resourceIds"] == []
+    assert sete["body"]["start"] == "2026-10-01"
+    assert sete["body"]["end"] == "2026-10-31"
+    assert sete["csrf"] == "tok987"
+
+
+def test_synk_sender_hele_iso_datetime_til_kalenderen(aula_db):
+    """Kun datoer gav et tomt svar, så dagene sendes som start og slut på dagen."""
+    kal = AsyncMock(return_value=[])
+
+    asyncio.run(AulaSync(aula_db)._sync_calendar(fake_client(calendar_events=kal), ["111"]))
+
+    sendt = kal.await_args.args[1:]
+    assert sendt[0].count("T") == 1, "start skal være en hel ISO-datetime"
+    assert "T23:59:59" in sendt[1], "slut på dagen skal være med"
+
+
+def test_opslag_får_både_forældre_og_børne_id(aula_db):
+    """Opslag skal have institutionens id med, ellers kommer der intet."""
+    aula_db.replace_aula_profiles(
+        [{"profile_id": "222", "name": "Emil", "institution_profile_id": "111"}]
+    )
+    aula_db.update_settings({"aula_institution_profile_ids": '["100", "111"]'})
+
+    kal = AsyncMock(return_value=[])
+    client = fake_client(posts=kal)
+    sync = AulaSync(aula_db)
+    asyncio.run(AulaSync(aula_db)._sync_posts(client, sync._profile_ids()))
+
+    sendte = kal.await_args.args[0] if kal.await_args.args else kal.await_args.kwargs
+    if isinstance(sendte, dict):
+        sendte = sendte["institutionProfileIds"]
+
+    # Både forældrenes id og barnets egen id skal med, så opslag fra
+    # institutionen og fra barnets side begge kommer med.
+    assert "100" in sendte
+    assert "111" in sendte
+
+
+def test_barnet_gemmes_med_institution_profile_id(aula_db):
+    """Børnene skal have v24's institutionProfileId, ellers fejler opslag."""
+    kontekst = {
+        "institutionProfile": {"id": 100},
+        "institutions": [
+            {
+                "institutionProfileId": 100,
+                "name": "Nord Skole",
+                "children": [{"id": 111, "profileId": 222, "name": "Emil"}],
+            }
+        ],
+    }
+
+    assert _children_from_context(kontekst) == [
+        {
+            "profile_id": "222",
+            "name": "Emil",
+            "institution_profile_id": "111",
+            "institution": "Nord Skole",
+        }
+    ]
+
+    asyncio.run(AulaSync(aula_db)._refresh_profiles(fake_client()))
+
+    gemt = aula_db.list_aula_profiles()[0]
+    assert gemt["profile_id"] == "222"
+    assert gemt["institution_profile_id"] == "111"
+    # Institutionens id skal også gemmes, det skal opslag og kalender bruge.
+    assert "100" in aula_db.get_setting("aula_institution_profile_ids")
+
+
+
+def _sync_en_tråd(aula_db, tråd, besked):
+    """Kører besked-synkroniseringen med lige pr. ét svar."""
+    client = fake_client(threads=AsyncMock(return_value=[tråd]),
+                         messages=AsyncMock(return_value=[besked]))
+    return asyncio.run(AulaSync(aula_db)._sync_messages(client))
+
+
+def test_ulæst_udledes_af_read_flaget(aula_db):
+    """v24 har ingen `unread` - det er `read` der er sand, når den er læst."""
+    tråd = {
+        "id": "t1",
+        "subject": "Hej",
+        "startedTime": "2026-10-05T08:00:00+00:00",
+        "read": False,
+        "creator": {"fullName": "Lærer Lise"},
+        "regardingChildren": [{"profileId": 222, "name": "Emil"}],
+    }
+    besked = {"id": "m1", "sendDateTime": "2026-10-05T08:00:00+00:00",
+              "sender": {"fullName": "Lærer Lise"}, "text": {"html": "<p>Hej</p>"}}
+
+    _sync_en_tråd(aula_db, tråd, besked)
+    assert aula_db.list_aula_threads()[0]["unread"] == 1
+
+    # Samme tråd, men markeret som læst.
+    aula_db.mark_aula_thread_fetched("t1")
+    _sync_en_tråd(aula_db, dict(tråd, read=True), besked)
+    assert aula_db.list_aula_threads()[0]["unread"] == 0
+
+
+def test_beskedsender_kan_være_indlejret_person_object(aula_db):
+    """Beskeder har afsenderen i et objekt, tråde har den i et andet felt."""
+    tråd = {
+        "id": "t1",
+        "subject": "Hej",
+        "startedTime": "2026-10-05T08:00:00+00:00",
+        "creator": {"fullName": "Lærer Lise"},
+        "regardingChildren": [{"profileId": 222, "name": "Emil"}],
+    }
+    besked = {
+        "id": "m1",
+        "sendDateTime": "2026-10-05T08:00:00+00:00",
+        "sender": {"fullName": "Lærer Lise", "shortName": "LL"},
+        "text": {"html": "<p>Hej med dig</p>"},
+    }
+
+    _sync_en_tråd(aula_db, tråd, besked)
+
+    gemt = aula_db.list_aula_messages("t1")[0]
+    assert gemt["sender"] == "Lærer Lise"
+    assert gemt["body"] == "Hej med dig"
+    assert gemt["thread_id"] == "t1"
+
+
+def test_synk_tæller_både_tråde_og_beskeder(aula_db):
+    """Rapporteringen skal ikke lade som om der er 0 beskeder."""
+    tråd = {
+        "id": "t1",
+        "subject": "Hej",
+        "startedTime": "2026-10-05T08:00:00+00:00",
+        "creator": {"fullName": "Lærer"},
+        "regardingChildren": [{"profileId": 222, "name": "Emil"}],
+    }
+    beskeder = [
+        {"id": f"m{i}", "sendDateTime": "2026-10-05T08:00:00+00:00",
+         "sender": {"fullName": "Lærer"}, "text": {"html": f"<p>Besked {i}</p>"}}
+        for i in range(3)
+    ]
+    client = fake_client(threads=AsyncMock(return_value=[tråd]),
+                         messages=AsyncMock(return_value=beskeder))
+
+    antal_tråde, antal_beskeder = asyncio.run(AulaSync(aula_db)._sync_messages(client))
+
+    assert antal_tråde == 1
+    assert antal_beskeder == 3

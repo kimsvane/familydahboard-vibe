@@ -57,6 +57,10 @@ DEFAULT_SETTINGS = {
     "aula_sync_minutes": "15",
     "aula_last_sync": "",
     "aula_last_error": "",
+    # Aula skifter API-version løbende, så den fundne version gemmes.
+    "aula_api_version": "24",
+    # Forældrenes egne institutionProfileId, som opslag og kalender kræver.
+    "aula_institution_profile_ids": "[]",
 }
 
 
@@ -201,6 +205,7 @@ class Database:
                     profile_id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     institution TEXT NOT NULL DEFAULT '',
+                    institution_profile_id TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS aula_threads (
@@ -223,10 +228,23 @@ class Database:
                     body TEXT NOT NULL DEFAULT '',
                     sent_at TEXT,
                     is_from_me INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    attachments TEXT NOT NULL DEFAULT '[]'
                 );
                 CREATE INDEX IF NOT EXISTS aula_messages_thread_idx
                     ON aula_messages(thread_id);
+                """
+            )
+
+            try:
+                connection.execute(
+                    "ALTER TABLE aula_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'"
+                )
+            except Exception:
+                pass
+
+            connection.executescript(
+                """
                 CREATE TABLE IF NOT EXISTS aula_posts (
                     post_id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
@@ -317,6 +335,17 @@ class Database:
             if "popup_enabled" not in camera_columns:
                 connection.execute(
                     "ALTER TABLE cameras ADD COLUMN popup_enabled INTEGER NOT NULL DEFAULT 1"
+                )
+            # Aula's API skelner mellem et barns profileId og dets
+            # institutionProfileId, og det er kun det sidste, opslag og
+            # kalender accepterer.
+            aula_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(aula_profiles)").fetchall()
+            }
+            if "institution_profile_id" not in aula_columns:
+                connection.execute(
+                    "ALTER TABLE aula_profiles "
+                    "ADD COLUMN institution_profile_id TEXT NOT NULL DEFAULT ''"
                 )
             for key, value in self.default_settings.items():
                 connection.execute(
@@ -993,12 +1022,14 @@ class Database:
                 if not profile_id:
                     continue
                 connection.execute(
-                    "INSERT INTO aula_profiles(profile_id, name, institution, created_at) "
-                    "VALUES (?, ?, ?, ?)",
+                    "INSERT INTO aula_profiles"
+                    "(profile_id, name, institution, institution_profile_id, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
                     (
                         profile_id,
                         str(child.get("name") or "Barn"),
                         str(child.get("institution") or ""),
+                        str(child.get("institution_profile_id") or ""),
                         utc_now(),
                     ),
                 )
@@ -1089,14 +1120,24 @@ class Database:
         body: str,
         sent_at: Optional[str],
         is_from_me: bool,
+        attachments: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         with self.connection() as connection:
             connection.execute(
                 "INSERT INTO aula_messages(message_id, thread_id, sender, body, sent_at, "
-                "is_from_me, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "is_from_me, created_at, attachments) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(message_id) DO UPDATE SET body = excluded.body, "
-                "sender = excluded.sender, sent_at = excluded.sent_at",
-                (message_id, thread_id, sender, body, sent_at, int(is_from_me), utc_now()),
+                "sender = excluded.sender, sent_at = excluded.sent_at, attachments = excluded.attachments",
+                (
+                    message_id,
+                    thread_id,
+                    sender,
+                    body,
+                    sent_at,
+                    int(is_from_me),
+                    utc_now(),
+                    json.dumps(attachments or [], ensure_ascii=False),
+                ),
             )
 
     def list_aula_messages(self, thread_id: str) -> list[dict[str, Any]]:
@@ -1106,7 +1147,17 @@ class Database:
                 "ORDER BY COALESCE(sent_at, created_at)",
                 (thread_id,),
             ).fetchall()
-        return [self._public(row) for row in rows]
+        result = []
+        for row in rows:
+            item = self._public(row)
+            if "attachments" in item:
+                try:
+                    if isinstance(item["attachments"], str):
+                        item["attachments"] = json.loads(item["attachments"])
+                except Exception:
+                    item["attachments"] = []
+            result.append(item)
+        return result
 
     def upsert_aula_post(
         self,
