@@ -1875,7 +1875,7 @@ function renderAula() {
       ? rows.map((post) => aulaPostItem(post)).join("")
       : aulaEmptyState("Der er ingen opslag, der matcher filteret.");
   } else {
-    const rows = aulaFilter([...(data.events || []), ...state.aulaSchoolFallback.map(aulaFallbackEvent)]);
+    const rows = aulaFilter([...(data.events || []), ...state.aulaSchoolFallback.map(aulaFallbackEvent)]).filter((event) => (event.category || "").toLowerCase() !== "lesson");
     $("#aula-count").textContent = `${rows.length} kalenderposter`;
     $("#aula-calendar-list").innerHTML = rows.length
       ? rows.map((event) => aulaEventItem(event, child)).join("")

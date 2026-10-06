@@ -55,6 +55,7 @@ DEFAULT_SETTINGS = {
     "aula_login_scope": "",
     "aula_login_expires": "",
     "aula_sync_minutes": "15",
+    "aula_posts_hint_hours": "24",
     "aula_last_sync": "",
     "aula_last_error": "",
     # Aula skifter API-version løbende, så den fundne version gemmes.

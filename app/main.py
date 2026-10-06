@@ -403,14 +403,68 @@ async def dashboard_summary(
         limit=99,
     )
     hints = alle_hints[:WALL_HINT_LIMIT]
+    # Tilføj Aula-opslag som huskelinjer (de sidste X timer). Gør intervallet konfigurerbart.
+    try:
+        aula_hint_hours = int(current_settings.get("aula_posts_hint_hours") or 24)
+    except (TypeError, ValueError):
+        aula_hint_hours = 24
+    if aula_hint_hours < 1:
+        aula_hint_hours = 1
+    if aula_hint_hours > 720:
+        aula_hint_hours = 720
+    now_utc = datetime.now(get_timezone(timezone_name))
+    now_aware = now_utc
+    cutoff = now_aware - timedelta(hours=aula_hint_hours)
+    aula_post_hints = []
+    for post in database.list_aula_posts():
+        pub = post.get("published_at")
+        if not pub:
+            continue
+        try:
+            dt = datetime.fromisoformat(str(pub).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=get_timezone(timezone_name))
+        else:
+            dt = dt.astimezone(get_timezone(timezone_name))
+        if dt >= cutoff:
+            title = post.get("title") or "(uden titel)"
+            author = post.get("author") or ""
+            text = title if not author else f"{title} · {author}"
+            aula_post_hints.append(
+                {
+                    "id": f"aula_post_{post.get('post_id')}",
+                    "text": text,
+                    "event_title": title,
+                    "event_id": post.get("post_id"),
+                    "local_time": dt.strftime("%H:%M"),
+                    "in_progress": False,
+                    "all_day": False,
+                    "source_kind": "aula_post",
+                }
+            )
+    aula_post_hints.sort(key=lambda item: item["local_time"])
+    # Slå sammen: eksisterende hints først (behold deres prioritet), derefter aula-posts
+    merged_hints = list(hints) + aula_post_hints
+    # Unik på id hvis nogen skulle kollidere
+    seen = {}
+    unique = []
+    for h in merged_hints:
+        hid = h.get("id")
+        if hid not in seen:
+            seen[hid] = True
+            unique.append(h)
+    hints_final = unique[:WALL_HINT_LIMIT]
+    hints_total_final = len(alle_hints) + len(aula_post_hints)
     return {
         "date": selected_day.isoformat(),
         "generated_at": datetime.now(get_timezone(timezone_name)).isoformat(),
         "settings": public_settings(current_settings),
         "members": database.list_members(),
         "events": events,
-        "event_hints": hints,
-        "event_hints_total": len(alle_hints),
+        "event_hints": hints_final,
+        "event_hints_total": hints_total_final,
         "birthdays": all_birthdays,
         "frames": database.list_frames(visible_only=True),
         "notes": database.list_notes(),
