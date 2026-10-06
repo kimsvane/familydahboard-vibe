@@ -457,12 +457,40 @@ async def dashboard_summary(
             unique.append(h)
     hints_final = unique[:WALL_HINT_LIMIT]
     hints_total_final = len(alle_hints) + len(aula_post_hints)
+    # Tilføj accepterede Aula-kalenderbegivenheder af typen 'event' til forsiden
+    try:
+        aula_events_all = database.list_aula_events()
+    except Exception:
+        aula_events_all = []
+    aula_family_events = []
+    for ae in aula_events_all:
+        if str(ae.get("category") or "").lower() == "lesson":
+            continue
+        acc = ae.get("accepted")
+        if acc is not True:
+            continue
+        # konverter til kalender-lignende format til forsiden
+        aula_family_events.append(
+            {
+                "id": f"aula_{ae.get('event_id')}",
+                "title": ae.get("title") or "(uden titel)",
+                "start_at": ae.get("start_at"),
+                "end_at": ae.get("end_at"),
+                "all_day": False,
+                "location": ae.get("location") or "",
+                "source_kind": "aula",
+                "source_name": "Aula",
+                "source_color": "#38bdf8",
+                "local_date": ae.get("start_at")[:10] if isinstance(ae.get("start_at"), str) and len(ae.get("start_at")) >= 10 else None,
+            }
+        )
+    merged_events = list(events) + aula_family_events
     return {
         "date": selected_day.isoformat(),
         "generated_at": datetime.now(get_timezone(timezone_name)).isoformat(),
         "settings": public_settings(current_settings),
         "members": database.list_members(),
-        "events": events,
+        "events": merged_events,
         "event_hints": hints_final,
         "event_hints_total": hints_total_final,
         "birthdays": all_birthdays,
