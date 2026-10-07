@@ -1127,6 +1127,18 @@ function renderSettings(summary) {
   $("#setting-theme").value = ["light", "dark"].includes(settings.theme) ? settings.theme : "auto";
   $("#setting-theme-day").value = settings.theme_day_start || "07:00";
   $("#setting-theme-night").value = settings.theme_night_start || "20:00";
+  if ($("#setting-weather-icon-set")) {
+    const weatherSet = settings.weather_icon_set || "meteocons";
+    if (["meteocons", "erikflowers", "weathericons"].includes(weatherSet)) {
+      $("#setting-weather-icon-set").value = weatherSet;
+    }
+  }
+  if ($("#setting-temperature-unit")) {
+    const tempUnit = settings.temperature_unit || "celsius";
+    if (["celsius", "fahrenheit"].includes(tempUnit)) {
+      $("#setting-temperature-unit").value = tempUnit;
+    }
+  }
   const target = $("#member-settings-list");
   target.innerHTML = summary.members?.length ? summary.members.map((member) => `<div class="settings-list-item"><div class="member-item"><div class="avatar" style="background:${escapeHtml(member.color || "#5c7cfa")}">${escapeHtml(initials(member.name))}</div><div class="member-copy"><strong>${escapeHtml(member.name)}</strong><span>Familiemedlem</span></div></div><div class="frame-actions"><button class="icon-button" data-edit-member="${member.id}" type="button" aria-label="Rediger">✎</button><button class="icon-button" data-delete-member="${member.id}" type="button" aria-label="Slet">×</button></div></div>`).join("") : `<div class="empty-state">Ingen medlemmer endnu.</div>`;
   const sources = summary.sources || [];
