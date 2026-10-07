@@ -192,6 +192,7 @@ class SettingsUpdate(Model):
     today_layout: Optional[str] = Field(default=None, max_length=20000)
     today_columns: Optional[int] = Field(default=None, ge=1, le=8)
     today_custom_css: Optional[str] = Field(default=None, max_length=20000)
+    weather_icon_set: Optional[Literal["meteocons", "erikflowers", "weathericons"]] = None
 
 
 class NotesIcloudSaveRequest(Model):
