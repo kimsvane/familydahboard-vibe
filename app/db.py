@@ -56,6 +56,7 @@ DEFAULT_SETTINGS = {
     "aula_login_expires": "",
     "aula_sync_minutes": "15",
     "aula_posts_hint_hours": "24",
+    "weather_icon_set": "meteocons",
     "aula_last_sync": "",
     "aula_last_error": "",
     # Aula skifter API-version løbende, så den fundne version gemmes.

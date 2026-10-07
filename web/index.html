@@ -392,6 +392,13 @@
                 <option value="dark">Mørkt hele tiden</option>
               </select>
               <div class="form-row"><div><label for="setting-theme-day">Dagtema fra kl.</label><input id="setting-theme-day" name="theme_day_start" type="time"></div><div><label for="setting-theme-night">Aftentema fra kl.</label><input id="setting-theme-night" name="theme_night_start" type="time"></div></div>
+              <label for="setting-weather-icon-set">Vejrikoner</label>
+              <select id="setting-weather-icon-set" name="weather_icon_set">
+                <option value="meteocons">Meteocons (amCharts) – SVG</option>
+                <option value="erikflowers">Erik Flowers Weather Icons – SVG</option>
+                <option value="weathericons">Weather Icons – SVG</option>
+              </select>
+              <div class="form-row"><div><label for="setting-temperature-unit">Temperaturenhed</label><select id="setting-temperature-unit" name="temperature_unit"><option value="celsius">Celsius (°C)</option><option value="fahrenheit">Fahrenheit (°F)</option></select></div></div>
               <button class="button primary" type="submit">Gem profil</button>
             </form>
           </article>
