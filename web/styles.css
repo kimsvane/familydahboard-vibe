@@ -231,7 +231,28 @@ input:hover, textarea:hover, select:hover { border-color: var(--field-line-hover
 .hero-weather { display: flex; align-items: center; gap: 11px; min-width: 130px; margin-left: 20px; }
 .weather-icon { font-size: 2.2rem; }
 .hero-weather strong { display: block; font-size: 1.6rem; }
-.hero-weather span:not(.weather-icon) { display: block; color: var(--hero-weather); font-size: 0.76rem; }
+.weather-icon svg {
+  width: 1em;
+  height: 1em;
+  display: block;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.weather-icon.small {
+  font-size: 1.4rem;
+}
+
+.weather-icon.small svg {
+  width: 1em;
+  height: 1em;
+}
+
+.hero-weather span:not(.weather-icon) {
+  display: block;
+  color: var(--hero-weather);
+  font-size: 0.76rem;
+}
 .stat-card { display: flex; flex-direction: column; justify-content: center; min-height: 210px; padding: 24px; }
 .stat-label { color: var(--muted); font-size: 0.78rem; font-weight: 800; }
 .stat-value { margin: 12px 0 4px; font-size: 3.4rem; line-height: 1; letter-spacing: -0.08em; }

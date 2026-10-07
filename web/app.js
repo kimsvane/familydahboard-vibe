@@ -353,8 +353,50 @@ const WEATHER_GLYPHS = {
   95: "ϟ", 96: "ϟ", 99: "ϟ",
 };
 
+const WEATHER_ICONS_SVG = {
+  meteocons: {
+    0: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"><circle cx="32" cy="32" r="14"/><path d="M32 8V2M32 62v-6M16.1 16.1l-4.2-4.2M51.9 51.9l-4.2-4.2M8 32H2M62 32h-6M16.1 47.9l-4.2 4.2M51.9 12.1l-4.2 4.2"/></g></svg>',
+    1: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="26" cy="24" r="12"/><path d="M26 8V4M16.5 13.5l-3-3M14 24H10M16.5 34.5l-3 3M38 24h-4M35.5 13.5l3-3M43.5 20.5a14 14 0 0 1 12 18.5 10 10 0 1 1-7.5 3.5H20a12 12 0 1 1 9.5-20.5"/></g></svg>',
+    2: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="22" r="10"/><path d="M24 8V5M15.8 12.8l-2.1-2.1M12 22H9M15.8 31.2l-2.1 2.1M36 22h-3M33.2 12.8l2.1-2.1M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H18a11 11 0 1 1 9-18.5"/></g></svg>',
+    3: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/></g></svg>',
+    45: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20h36M12 30h40M16 40h36M20 50h28"/></g></svg>',
+    48: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18h36M12 26h40M16 34h36M12 42h40M16 50h36"/></g></svg>',
+    51: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M24 44v6M32 44v8M40 44v6"/></g></svg>',
+    53: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M22 46v8M30 44v10M38 46v8M46 44v10"/></g></svg>',
+    55: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M20 48v10M28 46v12M36 48v10M44 46v12M52 48v10"/></g></svg>',
+    56: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M24 44v6M32 44v8M40 44v6" stroke-dasharray="2 4"/></g></svg>',
+    57: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M22 46v8M30 44v10M38 46v8M46 44v10" stroke-dasharray="2 4"/></g></svg>',
+    61: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M26 44v6M34 44v8M42 44v6"/></g></svg>',
+    63: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M24 46v8M32 44v10M40 46v8M48 44v10"/></g></svg>',
+    65: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M22 48v10M30 46v12M38 48v10M46 46v12M54 48v10"/></g></svg>',
+    66: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M26 44v6M34 44v8M42 44v6" stroke-dasharray="2 4"/></g></svg>',
+    67: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M24 46v8M32 44v10M40 46v8M48 44v10" stroke-dasharray="2 4"/></g></svg>',
+    71: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M24 46l2 4M32 44l2 6M40 46l2 4M48 44l2 6"/></g></svg>',
+    73: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M22 48l2 6M30 46l2 8M38 48l2 6M46 46l2 8M54 48l2 6"/></g></svg>',
+    75: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M20 50l2 8M28 48l2 10M36 50l2 8M44 48l2 10M52 50l2 8"/></g></svg>',
+    77: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><circle cx="26" cy="50" r="2"/><circle cx="34" cy="48" r="2"/><circle cx="42" cy="50" r="2"/><circle cx="50" cy="48" r="2"/></g></svg>',
+    80: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M26 44v6M34 44v8M42 44v6"/></g></svg>',
+    81: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M24 46v8M32 44v10M40 46v8M48 44v10"/></g></svg>',
+    82: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M22 48v10M30 46v12M38 48v10M46 46v12M54 48v10"/></g></svg>',
+    85: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M24 46l2 4M32 44l2 6M40 46l2 4M48 44l2 6"/></g></svg>',
+    86: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M22 48l2 6M30 46l2 8M38 48l2 6M46 46l2 8M54 48l2 6"/></g></svg>',
+    95: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M30 42l-4 10h12l-4 10"/></g></svg>',
+    96: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M28 42l-4 10h12l-4 10M40 40l-3 8"/></g></svg>',
+    99: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a12 12 0 1 1 9 20.5H18a11 11 0 1 1-9-18.5 12 12 0 0 1 22-9 10 10 0 0 1 15 7.5"/><path d="M46 28a12 12 0 0 1 12 18 9 9 0 1 1-7 3H20a11 11 0 1 1 9-18.5"/><path d="M26 42l-4 10h12l-4 10M38 40l-3 8M46 42l-3 8"/></g></svg>',
+  },
+};
+
 function weatherGlyph(code) {
   return WEATHER_GLYPHS[Number(code)] || "◌";
+}
+
+function weatherIconMarkup(code, settings) {
+  const set = settings?.weather_icon_set || "meteocons";
+  const map = WEATHER_ICONS_SVG[set] || WEATHER_ICONS_SVG.meteocons;
+  const svg = map[Number(code)];
+  if (svg) return svg;
+  const fallback = WEATHER_GLYPHS[Number(code)] || "◌";
+  return `<span aria-hidden="true">${fallback}</span>`;
 }
 
 function toDisplayTemperature(celsius, settings) {
@@ -371,13 +413,13 @@ function renderWeather(weather, settings) {
   const temperature = $("#weather-temperature");
   const location = $("#weather-location");
   if (!weather) {
-    icon.textContent = "—";
+    icon.innerHTML = weatherIconMarkup(null, settings);
     temperature.textContent = "--°";
     location.textContent = settings.location_name || "Vejr";
     return;
   }
   const value = toDisplayTemperature(weather.temperature, settings);
-  icon.textContent = weatherGlyph(weather.weather_code);
+  icon.innerHTML = weatherIconMarkup(weather.weather_code, settings);
   temperature.textContent = `${value === null ? "--" : Math.round(value)}°`;
   location.textContent = weather.location || settings.location_name || "Vejr";
 }
@@ -408,7 +450,7 @@ function renderForsideHours(weather, settings) {
     const lang = vist.length >= 4 ? " hour__temp--lang" : "";
     return `<div class="hour${wet ? " er-vaad" : ""}">
       <p class="hour__tid">${escapeHtml(label)}</p>
-      <p class="hour__vejr">${weatherGlyph(hour.weather_code)}</p>
+      <p class="hour__vejr">${weatherIconMarkup(hour.weather_code, settings)}</p>
       <p class="hour__temp${lang}">${vist}</p>
       <p class="hour__regn">${wet ? `${Math.round(rain)}%` : ""}</p>
     </div>`;
