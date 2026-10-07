@@ -601,6 +601,12 @@ class AulaSync:
                 "code_verifier": verifier,
             }
         )
+        # Gem client_id der blev brugt til login (til brug ved refresh)
+        try:
+            client_id = _client_id(scope)
+        except Exception:
+            client_id = CLIENT_ID
+
         self.database.update_settings(
             {
                 "aula_access_token": tokens.get("access_token", ""),
@@ -611,6 +617,7 @@ class AulaSync:
                 "aula_login_scope": "",
                 "aula_login_expires": "",
                 "aula_last_error": "",
+                "aula_client_id": client_id,
             }
         )
         client = self._client()
@@ -671,33 +678,78 @@ class AulaSync:
         )
 
     async def _ensure_fresh_token(self, client: AulaClient) -> AulaClient:
-        """Fornyer access-token, hvis den er ved at løbe ud."""
+        """Fornyer access-token, hvis den er ved at løbe ud.
+
+        Bruger større buffer (15 min), opdaterer det givne client-objekt,
+        gemmer ny refresh_token ved rotation og håndterer udløbet refresh
+        korrekt ved at rydde og bede om nyt login.
+
+        Kun proaktiv refresh, hvis der ER gemt et udløbstidspunkt.
+        """
         expires = self.database.get_setting("aula_token_expires") or ""
-        if not expires:
+        should_refresh = False
+        if expires:
+            try:
+                moment = datetime.fromisoformat(expires)
+                # Refresh hvis under eller lig 15 minutter til udløb
+                if moment - datetime.now(timezone.utc) <= timedelta(minutes=15):
+                    should_refresh = True
+            except ValueError:
+                should_refresh = False
+
+        if not should_refresh:
             return client
-        try:
-            moment = datetime.fromisoformat(expires)
-        except ValueError:
-            return client
-        if moment - datetime.now(timezone.utc) > timedelta(minutes=5):
-            return client
+
         refresh = self.database.get_setting("aula_refresh_token") or ""
         if not refresh:
             return client
-        tokens = await self._exchange(
-            {
-                "grant_type": "refresh_token",
-                "refresh_token": refresh,
-                "client_id": CLIENT_ID,
-            }
-        )
+
+        # Brug samme client_id som ved login hvis gemt, ellers CLIENT_ID
+        client_id = self.database.get_setting("aula_client_id") or CLIENT_ID
+
+        try:
+            tokens = await self._exchange(
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh,
+                    "client_id": client_id,
+                }
+            )
+        except AulaAuthError:
+            # Refresh er udløbet/ugyldigt – ryd refresh_token så UI kan bede om login
+            self.database.update_settings(
+                {
+                    "aula_refresh_token": "",
+                    "aula_token_expires": "",
+                    "aula_access_token": "",
+                }
+            )
+            raise
+        except AulaError:
+            # Andre fejl – prøv ikke at rydde refresh_token her
+            raise
+
+        # Gem tokens (respekter rotation – overskriv ikke med tom refresh_token)
+        new_access = tokens.get("access_token") or client.access_token
+        new_refresh = refresh
+        if tokens.get("refresh_token"):
+            new_refresh = tokens["refresh_token"]
+
         self.database.update_settings(
             {
-                "aula_access_token": tokens.get("access_token", client.access_token),
-                "aula_refresh_token": tokens.get("refresh_token", refresh),
+                "aula_access_token": new_access,
+                "aula_refresh_token": new_refresh,
                 "aula_token_expires": _expires_at(tokens.get("expires_in")),
             }
         )
+
+        # Opdater eksisterende client-objekt, så vi ikke bruger gammelt token
+        try:
+            client.access_token = new_access
+        except Exception:
+            pass
+
+        # Returnér nyt client-objekt for konsistens
         return self._client()
 
     async def _refresh_profiles(self, client: AulaClient) -> list[dict[str, Any]]:
