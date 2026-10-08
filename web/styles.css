@@ -229,7 +229,7 @@ input:hover, textarea:hover, select:hover { border-color: var(--field-line-hover
 .hero-card h1 { max-width: 650px; margin-bottom: 9px; }
 .hero-copy { max-width: 520px; margin-bottom: 0; color: var(--hero-copy); line-height: 1.55; }
 .hero-weather { display: flex; align-items: center; gap: 11px; min-width: 130px; margin-left: 20px; }
-.weather-icon { font-size: 2.2rem; }
+.weather-icon { font-size: 2.2rem; color: currentColor; display: inline-flex; align-items: center; justify-content: center; }
 .hero-weather strong { display: block; font-size: 1.6rem; }
 .weather-icon svg {
   width: 1em;
