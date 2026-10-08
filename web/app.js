@@ -492,7 +492,7 @@ function renderForsideHours(weather, settings) {
   const target = $("#forside-hours");
   const place = $("#forside-place");
   if (place) place.textContent = weather?.location || settings?.location_name || "";
-  const hourly = Array.isArray(weather?.hourly) ? weather.hourly.slice(0, 12) : [];
+  const hourly = Array.isArray(weather?.hourly) ? weather.hourly.slice(0, 6) : [];
   if (!hourly.length) {
     target.innerHTML = `<p class="forside-empty">Timevejr kunne ikke hentes</p>`;
     return;
@@ -505,9 +505,8 @@ function renderForsideHours(weather, settings) {
     const wet = Number.isFinite(rain) && rain >= 30;
     const label = index === 0 ? "Nu" : String(hour.time || "").slice(11, 13);
     const vist = temperature === null ? "--" : `${Math.round(temperature)}°`;
-    // Tolv kolonner giver kun 162 px pr. kolonne, og en to-cifret minusværdi
-    // som -12° bliver bred nok til at løbe ind i naboen. Sådanne
-    // temperaturer får derfor en mindre skrift.
+    // Paa smalle skaerme kan en to-cifret minusvaerdi som -12° loebe ind
+    // i naboen. Sådanne temperaturer får derfor en mindre skrift.
     const lang = vist.length >= 4 ? " hour__temp--lang" : "";
     return `<div class="hour${wet ? " er-vaad" : ""}">
       <p class="hour__tid">${escapeHtml(label)}</p>

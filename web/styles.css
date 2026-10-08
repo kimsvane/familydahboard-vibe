@@ -695,7 +695,7 @@ body.paa-forside .nav-button { min-height: 34px; font-size: 0.76rem; }
 .forside-empty { margin: 0; color: var(--faint); font-size: var(--fs-mellem); font-weight: 700; }
 
 /* Tolv lige brede timekolonner. */
-.hourly { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: clamp(4px, 0.5vw, 10px); }
+.hourly { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: clamp(4px, 0.5vw, 10px); }
 .hour { display: flex; flex-direction: column; align-items: center; gap: clamp(2px, 0.25vw, 6px); padding: clamp(6px, 0.6vw, 14px) 2px; border: 1px solid transparent; border-radius: var(--radius-md); container-type: inline-size; }
 .hour__tid { margin: 0; color: var(--muted); font-size: var(--fs-mellem); font-weight: 800; font-variant-numeric: tabular-nums; }
 .hour__vejr { margin: 0; font-size: min(calc(var(--fs-ikon) * 3), 90cqw); line-height: 1; display: flex; align-items: center; justify-content: center; }
@@ -759,10 +759,8 @@ body.paa-forside .nav-button { min-height: 34px; font-size: 0.76rem; }
 .forside-hint__tekst { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .forside-hint__hvornår { flex: none; color: var(--muted); font-size: var(--fs-lille); font-weight: 750; letter-spacing: 0.02em; white-space: nowrap; }
 
-/* I stående format er der plads til færre timekolonner, og kalenderen
-   og fødselsdagen ligger under hinanden. */
+/* I stående format ligger kalenderen og fødselsdagen under hinanden. */
 @media (max-aspect-ratio: 1/1) {
-  .hourly { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .forside-bottom { grid-template-columns: minmax(0, 1fr); }
   .forside-panel--birthday { flex: 1 1 auto; }
   .forside-hint { font-size: clamp(24px, 5.5vw, 44px); }
