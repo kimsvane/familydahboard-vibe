@@ -229,7 +229,7 @@ input:hover, textarea:hover, select:hover { border-color: var(--field-line-hover
 .hero-card h1 { max-width: 650px; margin-bottom: 9px; }
 .hero-copy { max-width: 520px; margin-bottom: 0; color: var(--hero-copy); line-height: 1.55; }
 .hero-weather { display: flex; align-items: center; gap: 11px; min-width: 130px; margin-left: 20px; }
-.weather-icon { font-size: 2.2rem; color: currentColor; display: inline-flex; align-items: center; justify-content: center; }
+.weather-icon { font-size: 5.4rem; color: currentColor; display: inline-flex; align-items: center; justify-content: center; }
 .hero-weather strong { display: block; font-size: 1.6rem; }
 .weather-icon svg {
   width: 1em;
@@ -696,9 +696,9 @@ body.paa-forside .nav-button { min-height: 34px; font-size: 0.76rem; }
 
 /* Tolv lige brede timekolonner. */
 .hourly { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: clamp(4px, 0.5vw, 10px); }
-.hour { display: flex; flex-direction: column; align-items: center; gap: clamp(2px, 0.25vw, 6px); padding: clamp(6px, 0.6vw, 14px) 2px; border: 1px solid transparent; border-radius: var(--radius-md); }
+.hour { display: flex; flex-direction: column; align-items: center; gap: clamp(2px, 0.25vw, 6px); padding: clamp(6px, 0.6vw, 14px) 2px; border: 1px solid transparent; border-radius: var(--radius-md); container-type: inline-size; }
 .hour__tid { margin: 0; color: var(--muted); font-size: var(--fs-mellem); font-weight: 800; font-variant-numeric: tabular-nums; }
-.hour__vejr { margin: 0; font-size: var(--fs-ikon); line-height: 1; display: flex; align-items: center; justify-content: center; }
+.hour__vejr { margin: 0; font-size: min(calc(var(--fs-ikon) * 3), 90cqw); line-height: 1; display: flex; align-items: center; justify-content: center; }
 .hour__vejr svg { width: 1em; height: 1em; display: block; overflow: visible; }
 .hour__temp { margin: 0; font-size: var(--fs-temp); white-space: nowrap;
   font-variant-numeric: tabular-nums; font-weight: 850; line-height: 1; letter-spacing: -0.04em; }
