@@ -684,17 +684,31 @@ class Database:
         with self.connection() as connection:
             return connection.execute("DELETE FROM frames WHERE id = ?", (frame_id,)).rowcount > 0
 
+    def list_cameras_raw(self) -> list[dict[str, Any]]:
+        return [self._public(row, redact=False) for row in self._camera_rows()]
+
     def list_cameras(self) -> list[dict[str, Any]]:
-        with self.connection() as connection:
-            rows = connection.execute(
-                "SELECT * FROM cameras ORDER BY sort_order, id"
-            ).fetchall()
-        return [self._public(row) for row in rows]
+        return [self._public(row) for row in self._camera_rows()]
+
+    def get_camera_raw(self, camera_id: int) -> Optional[dict[str, Any]]:
+        row = self._camera_row(camera_id)
+        return self._public(row, redact=False) if row else None
 
     def get_camera(self, camera_id: int) -> Optional[dict[str, Any]]:
-        with self.connection() as connection:
-            row = connection.execute("SELECT * FROM cameras WHERE id = ?", (camera_id,)).fetchone()
+        row = self._camera_row(camera_id)
         return self._public(row) if row else None
+
+    def _camera_rows(self) -> list[sqlite3.Row]:
+        with self.connection() as connection:
+            return connection.execute(
+                "SELECT * FROM cameras ORDER BY sort_order, id"
+            ).fetchall()
+
+    def _camera_row(self, camera_id: int) -> Optional[sqlite3.Row]:
+        with self.connection() as connection:
+            return connection.execute(
+                "SELECT * FROM cameras WHERE id = ?", (camera_id,)
+            ).fetchone()
 
     def create_camera(
         self,
@@ -1331,7 +1345,7 @@ class Database:
         return item
 
     @staticmethod
-    def _public(row: sqlite3.Row) -> dict[str, Any]:
+    def _public(row: sqlite3.Row, *, redact: bool = True) -> dict[str, Any]:
         item = dict(row)
         for key in (
             "enabled",
@@ -1352,5 +1366,6 @@ class Database:
             item["source_id"] = int(item["source_id"])
         if "password" in item:
             item["has_password"] = bool(item["password"])
-            item["password"] = ""
+            if redact:
+                item["password"] = ""
         return item

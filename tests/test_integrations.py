@@ -536,6 +536,59 @@ def test_camera_snapshot_route_serves_cached_image(tmp_path):
         main.reminders = old_reminders
 
 
+def test_camera_routes_giver_adgangskoden_til_kameraet(tmp_path):
+    old_database = main.database
+    old_synchronizer_database = main.synchronizer.database
+    old_camera_monitor = main.camera_monitor
+    old_reminders = main.reminders
+    database = Database(tmp_path / "camera-secret.db")
+    camera = database.create_camera(
+        "Entré", "http://10.0.0.5/", "admin", "hemmeligt", 0, True, True, True, ""
+    )
+    main.database = database
+    main.synchronizer.database = database
+    main.camera_monitor = CameraMonitor(database)
+    main.reminders = RemindersSync(database)
+    fanget = {}
+
+    async def ai_state(self, _client):
+        fanget["ai"] = self.password
+        return [{"type": "people", "label": "Person"}]
+
+    async def snapshot(self, _client):
+        fanget["snapshot"] = self.password
+        return b"jpeg-bytes"
+
+    try:
+        with patch.object(ReolinkCamera, "get_ai_state", ai_state), patch.object(
+            ReolinkCamera, "snapshot", snapshot
+        ):
+            asyncio.run(main.camera_monitor.poll())
+            assert fanget["ai"] == "hemmeligt"
+
+            with TestClient(main.app) as client:
+                headers = _auth_client(client)
+                activity = client.get("/api/cameras/activity", headers=headers)
+                tested = client.post(f"/api/cameras/{camera['id']}/test", headers=headers)
+
+                fanget.clear()
+                main.camera_monitor.invalidate_snapshot(camera["id"])
+                snapped = client.get(f"/api/cameras/{camera['id']}/snapshot", headers=headers)
+                listed = client.get("/api/cameras", headers=headers)
+
+        assert activity.status_code == 200
+        assert activity.json()["active"], "aktivitetsruten skal kunne logge ind på kameraet"
+        assert tested.json()["ok"] is True, tested.json()["message"]
+        assert snapped.status_code == 200
+        assert fanget.get("snapshot") == "hemmeligt", "snapshotruten skal kunne logge ind på kameraet"
+        assert listed.json()["cameras"][0]["password"] == ""
+    finally:
+        main.database = old_database
+        main.synchronizer.database = old_synchronizer_database
+        main.camera_monitor = old_camera_monitor
+        main.reminders = old_reminders
+
+
 def test_build_is_visible_in_health_index_and_service_worker():
     with TestClient(main.app) as client:
         health = client.get("/api/health").json()

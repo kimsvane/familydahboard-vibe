@@ -103,3 +103,27 @@ def test_aktivitet_registrerer_popup_flag(tmp_path: Path, monkeypatch: pytest.Mo
     aktiv = monitor.activity()["active"]
     assert len(aktiv) == 1
     assert aktiv[0]["popup_enabled"] is False, "et fra-slået kamera skal stadig logge, men melde fra til popup"
+
+
+def test_overvaagning_faar_kameraets_adgangskode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    database = Database(tmp_path / "kamera.db")
+    lav_kamera(database)
+    monitor = CameraMonitor(database)
+    fanget: dict = {}
+
+    async def laes_adgangskode(self, _client):
+        fanget["password"] = self.password
+        return []
+
+    monkeypatch.setattr(ReolinkCamera, "get_ai_state", laes_adgangskode)
+    asyncio.run(monitor.poll())
+
+    assert fanget.get("password") == "pw", (
+        "pollingen skal bruge den gemte adgangskode – ellers afviser Reolink login, "
+        "bliver aktivitetsloggen tom, og popup'en dukker aldrig op"
+    )
+    assert database.list_cameras()[0]["password"] == "", "API-listen skal fortsat være hemmelighedsfri"

@@ -28,6 +28,7 @@ const state = {
   cameraBroken: new Set(),
   cameraLive: new Set(),
   detectKey: null,
+  detectDismissedKey: null,
   reminderLists: [],
   icloudNote: null,
   cameraTimer: null,
@@ -1460,6 +1461,39 @@ function closeDetectPopup() {
   state.detectKey = null;
 }
 
+// Manuel lukning må ikke følges af en genåbning i det næste poll, mens
+// hændelsen stadig kører. Vi husker nøglen og ser bort fra netop den
+// hændelse, indtil den er ovre eller en ny tager over.
+function dismissDetectPopup() {
+  state.detectDismissedKey = state.detectKey;
+  stopDetectTimers();
+  closeDetectPopup();
+}
+
+function bindDetectImage(image) {
+  image.addEventListener("error", () => {
+    const box = image.closest(".detect-shot");
+    if (!box) return;
+    if (image.dataset.detectFallback !== "1" && image.src.includes("/stream")) {
+      image.dataset.detectFallback = "1";
+      box.querySelector("[data-detect-live]")?.setAttribute("hidden", "");
+      image.src = `/api/cameras/${image.dataset.detectCam}/snapshot?t=${Date.now()}`;
+      return;
+    }
+    image.style.display = "none";
+    if (!box.querySelector(".camera-overlay")) {
+      const overlay = document.createElement("div");
+      overlay.className = "camera-overlay";
+      overlay.textContent = "Kunne ikke vise billede – tjek at kameraet er online";
+      box.append(overlay);
+    }
+  });
+  image.addEventListener("load", () => {
+    image.style.display = "";
+    image.closest(".detect-shot")?.querySelector(".camera-overlay")?.remove();
+  });
+}
+
 function startLiveInPopup(key) {
   // Kun hvis det stadig er den samme hændelse. Ellers ville vi starte
   // en stream i en popup, der allerede er lukket.
@@ -1480,6 +1514,7 @@ function handleDetections(activity) {
   // kveld. Serveren sender flaget med, så slipper vi et ekstra opslag.
   const active = (activity.active || []).filter((kamera) => kamera.popup_enabled !== false);
   if (!active.length) {
+    state.detectDismissedKey = null;
     stopDetectTimers();
     closeDetectPopup();
     return;
@@ -1489,11 +1524,16 @@ function handleDetections(activity) {
   // stabil gennem hele hændelsen. Det er grunden til, at poppen ikke
   // længere bygges om hvert femte sekund, hvilket dræbte live-streamen.
   const key = active.map((camera) => `${camera.id}:${camera.since}`).join("|");
+  if (state.detectDismissedKey) {
+    if (state.detectDismissedKey === key) return;
+    state.detectDismissedKey = null;
+  }
+  const closeDelay = Math.max(0, Number(activity.close_delay || 0));
   const isNew = state.detectKey !== key;
   if (isNew) {
     stopDetectTimers();
     state.detectKey = key;
-    popup.innerHTML = active.map((camera) => {
+    const cards = active.map((camera) => {
       const types = (camera.types || []).map((item) => detectLabel(item.label || item.type)).join(" og ") || "Aktivitet";
       const configured = state.cameras.find((item) => String(item.id) === String(camera.id));
       const canStream = Boolean((configured?.live_stream_url || "").trim());
@@ -1501,8 +1541,13 @@ function handleDetections(activity) {
       // så man ved med det samme at der er noget ved døren. Den tunge
       // RTSP-stream tænder først efter live_delay sekunder.
       const src = `/api/cameras/${camera.id}/snapshot?t=${Date.now()}`;
-      return `<div class="detect-card"><div class="detect-head"><h2>${escapeHtml(camera.name)}</h2><span class="detect-types">${escapeHtml(types)}</span></div>${canStream ? `<span class="camera-live detect-live" data-detect-live hidden>LIVE</span>` : ""}<img data-detect-cam="${escapeHtml(camera.id)}" src="${src}" alt="Kamerabillede"><div class="detect-foot"><span>Detekteret ${escapeHtml(formatTime(camera.since))}</span><span>Lukker automatisk</span></div></div>`;
+      const foot = closeDelay > 0
+        ? `<span>Lukker automatisk om ${closeDelay}&nbsp;s</span>`
+        : `<span>Står åben, til du lukker den</span>`;
+      return `<div class="detect-card"><div class="detect-head"><h2>${escapeHtml(camera.name)}</h2><span class="detect-types">${escapeHtml(types)}</span></div><div class="detect-shot">${canStream ? `<span class="camera-live detect-live" data-detect-live hidden>LIVE</span>` : ""}<img data-detect-cam="${escapeHtml(camera.id)}" src="${src}" alt="Kamerabillede"></div><div class="detect-foot"><span>Detekteret ${escapeHtml(formatTime(camera.since))}</span>${foot}</div></div>`;
     }).join("");
+    popup.innerHTML = `<div class="detect-cards">${cards}</div><button class="detect-close" data-detect-close type="button" aria-label="Luk">✕</button>`;
+    popup.querySelectorAll("img[data-detect-cam]").forEach(bindDetectImage);
 
     const liveDelay = Math.max(0, Number(activity.live_delay ?? 0) || 0);
     if (liveDelay > 0) {
@@ -1513,12 +1558,10 @@ function handleDetections(activity) {
 
     // Sættes én gang pr. hændelse. Før blev den nulstillet ved hvert
     // poll, så poppen aldrig nåede at lukke sig selv.
-    const closeDelay = Math.max(0, Number(activity.close_delay || 0));
     if (closeDelay > 0) {
       state.detectCloseTimer = window.setTimeout(() => {
         if (state.detectKey !== key) return;
-        stopDetectTimers();
-        closeDetectPopup();
+        dismissDetectPopup();
       }, closeDelay * 1000);
     }
   }
@@ -1529,10 +1572,10 @@ function handleDetections(activity) {
 // dagevis, så en udløbet session eller et kort netværkshul ville ellers
 // efterlade poppen død uden at nogen mærkede det. Vi prøver igen i stedet.
 function scheduleCameraRetry() {
-  if (state.cameraRetryTimer) return;
+  if (state.cameraRetryTimer || appShell.hidden) return;
   state.cameraRetryTimer = window.setTimeout(() => {
     state.cameraRetryTimer = null;
-    pollCameras();
+    loadCameras();
   }, 5000);
 }
 
@@ -1556,9 +1599,13 @@ async function loadCameras(silent = true) {
     const result = await api("/api/cameras");
     state.cameras = result.cameras || [];
     renderCameras();
-    if (!state.cameraTimer) pollCameras();
   } catch (error) {
     if (!silent) showToast(error.message, true);
+    scheduleCameraRetry();
+  } finally {
+    // Overvågningen må ikke dø, fordi kameralisten ikke kunne hentes.
+    // Poppen skal nok kunne åbnes, selv om LIVE-mærket mangler.
+    if (!appShell.hidden && !state.cameraTimer) pollCameras();
   }
 }
 
@@ -2537,7 +2584,16 @@ function bindEvents() {
     if (target.dataset.toggleReminder) toggleEventReminder(target.dataset.toggleReminder);
   });
   modalRoot.addEventListener("click", (event) => { if (event.target === modalRoot || event.target.closest("[data-close-modal]")) closeModal(); });
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !modalRoot.hidden) closeModal(); });
+  const detectPopup = $("#detect-popup");
+  detectPopup.addEventListener("click", (event) => {
+    if (event.target.closest(".detect-card")) return;
+    dismissDetectPopup();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!$("#detect-popup").hidden) { dismissDetectPopup(); return; }
+    if (!modalRoot.hidden) closeModal();
+  });
   window.addEventListener("online", () => loadSummary(true));
   window.addEventListener("offline", () => setConnection(false, "Offline"));
 }

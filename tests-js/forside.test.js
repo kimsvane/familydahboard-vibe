@@ -104,7 +104,7 @@ vm.runInContext(source, context, { filename: "app.js" });
 const { familyEventsInNext24h, weatherGlyph, toDisplayTemperature, themeForNow, clockMinutes,
   renderForsideHints, renderReminderSourceOptions, reminderSourceLabel, reminderMatchLabel,
   genindlaesAlt, handleDetections, pollCameras, renderForsideBirthday, fejltekst,
-  renderForsideEvents, dagslinjeDagSkala } = context;
+  renderForsideEvents, dagslinjeDagSkala, dismissDetectPopup } = context;
 
 let bestævrelser = 0;
 // Enkelte tjek er asynkrone, så de skal vente. De køres i rækkefølge og
@@ -430,7 +430,7 @@ function medEntréKamera(kør) {
   popup.hidden = true;
   // Hvert tjek skal starte forfra. detectKey overlever ellers fra
   // forrige tjek, og så går poppen aldrig ind i den nye hændelse.
-  vm.runInContext("state.detectKey = null; stopDetectTimers();", context);
+  vm.runInContext("state.detectKey = null; state.detectDismissedKey = null; stopDetectTimers();", context);
   vm.runInContext('state.cameras = [{ id: 1, name: "Entré", live_stream_url: "rtsp://bruger:kod@10.0.0.5:554/h264Preview_01_main" }]', context);
   try {
     return kør({ popup, img, liveBadge });
@@ -501,6 +501,70 @@ tjek("popup lukker sig selv, og et poll undervejs ødelægger ikke nedlukningen"
     assert.equal(popup.hidden, true, "popup skal lukke sig selv");
     assert.equal(popup.innerHTML, "", "billederne skal ryddes, så ffmpeg stopper");
     assert.equal(kontekstTimere.some((t) => t.ms === 12000), false, "der må ikke stå en lukning tilbage");
+  });
+});
+
+tjek("lukket popup genåbner ikke, mens den samme hændelse kører", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet({ close_delay: 12 }));
+    assert.equal(popup.hidden, false);
+    dismissDetectPopup();
+    assert.equal(popup.hidden, true, "popup skal lukke med det samme");
+    assert.equal(popup.innerHTML, "", "billederne skal ryddes, så ffmpeg stopper");
+    handleDetections(aktivitet({ close_delay: 12 }));
+    assert.equal(popup.hidden, true, "poppen må ikke genåbne under den samme hændelse");
+  });
+});
+
+tjek("en ny hændelse efter manuel lukning åbner poppen igen", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet());
+    dismissDetectPopup();
+    handleDetections(aktivitet({ active: [
+      { id: 1, name: "Entré", types: [{ type: "people", label: "Person" }], since: "2026-09-30T09:00:00+00:00" },
+    ] }));
+    assert.equal(popup.hidden, false, "en ny hændelse skal gerne vise poppen igen");
+  });
+});
+
+tjek("efter aktiviteten er stoppet må poppen vises igen", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet());
+    dismissDetectPopup();
+    handleDetections({ ...aktivitet(), active: [] });
+    handleDetections(aktivitet());
+    assert.equal(popup.hidden, false, "en helt ny hændelse må ikke spærres af en gammel lukning");
+  });
+});
+
+tjek("popup lover kun nedlukning, når den faktisk lukker sig selv", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet({ close_delay: 0 }));
+    assert.ok(!popup.innerHTML.includes("Lukker automatisk"), "uden close_delay må teksten ikke love en nedlukning");
+    assert.ok(popup.innerHTML.includes("Står åben"), "der skal stå, at poppen bliver stående");
+  });
+});
+
+tjek("popup viser nedlukningstiden, når den lukker sig selv", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet({ close_delay: 12 }));
+    assert.ok(popup.innerHTML.includes("Lukker automatisk om 12"), "teksten skal vise den valgte tid");
+  });
+});
+
+tjek("en selv-lukkende popup genåbner ikke, før hændelsen er ovre", () => {
+  medEntréKamera(({ popup }) => {
+    kontekstTimere.splice(0, kontekstTimere.length);
+    handleDetections(aktivitet({ close_delay: 12 }));
+    kontekstTimere.find((t) => t.ms === 12000).fn();
+    assert.equal(popup.hidden, true, "poppen skal lukke sig selv");
+    handleDetections(aktivitet({ close_delay: 12 }));
+    assert.equal(popup.hidden, true, "den må ikke genåbne midt i den samme hændelse");
   });
 });
 

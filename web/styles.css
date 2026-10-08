@@ -465,6 +465,11 @@ input:hover, textarea:hover, select:hover { border-color: var(--field-line-hover
    hovedet af en person, der kom tættere paa kameraet. */
 .detect-card img { display: block; width: 100%; max-height: 46vh; aspect-ratio: 16 / 9; object-fit: contain; background: #05080f; }
 .detect-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 18px; color: var(--muted); font-size: 0.75rem; }
+.detect-cards { display: grid; gap: 16px; width: min(100%, 620px); max-height: 100%; overflow: auto; }
+.detect-card .detect-shot { position: relative; background: #05080f; }
+.detect-card .detect-shot .camera-overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; color: var(--faint); font-size: 0.82rem; text-align: center; }
+.detect-close { position: fixed; z-index: 3; top: 18px; right: 18px; display: grid; place-items: center; width: 50px; height: 50px; border: 1px solid rgba(255, 126, 138, 0.55); border-radius: 50%; color: #ffd9dd; background: rgba(26, 27, 46, 0.92); font-size: 1.15rem; line-height: 1; cursor: pointer; }
+.detect-close:hover, .detect-close:focus-visible { background: rgba(164, 52, 69, 0.85); }
 
 .icloud-note-body { white-space: pre-wrap; line-height: 1.55; }
 

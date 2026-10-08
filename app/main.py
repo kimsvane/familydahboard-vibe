@@ -935,7 +935,7 @@ async def camera_activity() -> dict[str, Any]:
 
 @app.post("/api/cameras/{camera_id}/test", dependencies=[Depends(require_auth)])
 async def test_camera(camera_id: int) -> dict[str, Any]:
-    camera = database.get_camera(camera_id)
+    camera = database.get_camera_raw(camera_id)
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
     return await camera_monitor.test(camera)
@@ -943,7 +943,7 @@ async def test_camera(camera_id: int) -> dict[str, Any]:
 
 @app.get("/api/cameras/{camera_id}/snapshot", dependencies=[Depends(require_auth)])
 async def camera_snapshot(camera_id: int) -> Response:
-    camera = database.get_camera(camera_id)
+    camera = database.get_camera_raw(camera_id)
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
     snapshot = camera_monitor.snapshot_bytes(camera_id)

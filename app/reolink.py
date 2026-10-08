@@ -554,7 +554,7 @@ class CameraMonitor:
                 pass
 
     async def poll(self) -> None:
-        cameras = self.database.list_cameras()
+        cameras = self.database.list_cameras_raw()
         if not cameras:
             self._active = {}
             return
