@@ -63,6 +63,7 @@ DEFAULT_SETTINGS = {
     "aula_api_version": "24",
     # Forældrenes egne institutionProfileId, som opslag og kalender kræver.
     "aula_institution_profile_ids": "[]",
+    "today_custom_css": "",
 }
 
 

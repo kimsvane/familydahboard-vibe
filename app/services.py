@@ -37,6 +37,7 @@ HOURLY_FIELDS = (
     ("apparent_temperature", "apparent_temperature"),
     ("precipitation_probability", "precipitation_probability"),
     ("weather_code", "weather_code"),
+    ("is_day", "is_day"),
 )
 
 
@@ -283,7 +284,7 @@ class WeatherService:
                         params={
                             "latitude": latitude,
                             "longitude": longitude,
-                            "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
+                            "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day",
                             # timebaseret vejr til forsiden. To dage, fordi
                             # tolv timer kan naa over i morgen.
                             "hourly": ",".join(source for source, _ in HOURLY_FIELDS),
@@ -299,6 +300,7 @@ class WeatherService:
                         "apparent_temperature": current.get("apparent_temperature"),
                         "weather_code": current.get("weather_code"),
                         "wind_speed": current.get("wind_speed_10m"),
+                        "is_day": current.get("is_day"),
                         "location": location_name,
                         "hourly": parse_hourly(payload, timezone_name),
                     }

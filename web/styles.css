@@ -696,15 +696,15 @@ body.paa-forside .nav-button { min-height: 34px; font-size: 0.76rem; }
 
 /* Tolv lige brede timekolonner. */
 .hourly { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: clamp(4px, 0.5vw, 10px); }
-.hour { display: flex; flex-direction: column; align-items: center; gap: clamp(2px, 0.25vw, 6px); padding: clamp(6px, 0.6vw, 14px) 2px; border: 1px solid transparent; border-radius: var(--radius-md); container-type: inline-size; }
-.hour__tid { margin: 0; color: var(--muted); font-size: var(--fs-mellem); font-weight: 800; font-variant-numeric: tabular-nums; }
-.hour__vejr { margin: 0; font-size: min(calc(var(--fs-ikon) * 3), 90cqw); line-height: 1; display: flex; align-items: center; justify-content: center; }
+.hour { display: flex; flex-direction: column; align-items: center; gap: clamp(1px, 0.2vw, 4px); padding: clamp(3px, 0.4vw, 8px) 2px; border: 1px solid transparent; border-radius: var(--radius-md); container-type: inline-size; }
+.hour__tid { margin: 0; color: var(--muted); font-size: min(var(--fs-mellem), 1.9rem); font-weight: 800; font-variant-numeric: tabular-nums; }
+.hour__vejr { margin: 0; font-size: min(calc(var(--fs-ikon) * 3), 90cqw, 4.25rem); line-height: 1; display: flex; align-items: center; justify-content: center; }
 .hour__vejr svg { width: 1em; height: 1em; display: block; overflow: visible; }
-.hour__temp { margin: 0; font-size: var(--fs-temp); white-space: nowrap;
+.hour__temp { margin: 0; font-size: min(var(--fs-temp), 3.4rem); white-space: nowrap;
   font-variant-numeric: tabular-nums; font-weight: 850; line-height: 1; letter-spacing: -0.04em; }
-/* -12° og lignende er for brede til en tolft del af skærmen. */
-.hour__temp--lang { font-size: calc(var(--fs-temp) * 0.8); }
-.hour__regn { margin: 0; min-height: 1.1em; color: var(--accent); font-size: var(--fs-lille); font-weight: 850; }
+/* -12° og lignende er for brede til en tolftedel af skærmen. */
+.hour__temp--lang { font-size: min(calc(var(--fs-temp) * 0.8), 2.7rem); }
+.hour__regn { margin: 0; min-height: 1.1em; color: var(--accent); font-size: min(var(--fs-lille), 1.25rem); font-weight: 850; }
 .hour.er-vaad { border-color: var(--hour-wet-line); background: var(--hour-wet-bg); }
 .hour:first-child { border-color: var(--line-strong); background: var(--hour-now-bg); }
 
